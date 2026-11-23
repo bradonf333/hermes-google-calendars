@@ -4,6 +4,14 @@ All notable changes to Google Calendars for Hermes. Versions follow
 [semantic versioning](https://semver.org/); the newest is on top. The same
 notes appear in the panel's one-time "What's new" banner after an update.
 
+## 0.3.2 (2026-11-23)
+
+- **Greeting briefings are additive.** The calendar rundown is added to
+  whatever the agent normally says when greeted (its usual catch-up), instead
+  of replacing it.
+- **New setting: Also include in briefings.** Plain-words extras for the
+  greeting and scheduled briefings, e.g. "new Slack messages, open PRs".
+
 ## 0.3.1 (2026-11-23)
 
 - **Stale panel warning.** When Desktop and the Hermes gateway run on different

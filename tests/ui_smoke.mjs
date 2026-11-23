@@ -40,7 +40,7 @@ writeFileSync(join(tmp, 'plugin.mjs'), src)
 const plugin = (await import(pathToFileURL(join(tmp, 'plugin.mjs')).href)).default
 
 // ---- fake backend
-const state = { configured: false, accounts: [], hidden: [], version: '0.3.1' }
+const state = { configured: false, accounts: [], hidden: [], version: '0.3.2' }
 const calls = []
 const ev = (id, summary, start, end, extra = {}) => ({ id, summary, start, end, all_day: start.length === 10, account_id: 'me@work.com',
   account_label: 'Work', calendar_id: 'me@work.com', calendar_name: 'Work', color: '#4285f4', writable: true, recurring: false,
@@ -204,15 +204,15 @@ await click(hol.querySelector('input'))
 check(calls.some(c => c[0] === 'PATCH' && c[2]?.hidden_calendars?.includes('holidays')), 'unticking a calendar hides it (saved on the account)')
 
 // What's new: silent on a fresh install, shown once after an upgrade
-check(storage.get('seenVersion') === '0.3.1' && !document.querySelector('[data-whats-new]'), 'fresh install: no "What\'s new" banner')
+check(storage.get('seenVersion') === '0.3.2' && !document.querySelector('[data-whats-new]'), 'fresh install: no "What\'s new" banner')
 storage.set('seenVersion', '0.2.2')
 await act(async () => root.unmount())
 const root2 = createRoot(document.getElementById('root'))
 await act(async () => root2.render(pane.render()))
 await flush()
-check(document.querySelector('[data-whats-new]') && text().includes('updated to 0.3.1'), 'after an upgrade: "What\'s new" banner shows')
+check(document.querySelector('[data-whats-new]') && text().includes('updated to 0.3.2'), 'after an upgrade: "What\'s new" banner shows')
 await click(byTitle('Dismiss'))
-check(!document.querySelector('[data-whats-new]') && storage.get('seenVersion') === '0.3.1', 'dismissed banner stays dismissed')
+check(!document.querySelector('[data-whats-new]') && storage.get('seenVersion') === '0.3.2', 'dismissed banner stays dismissed')
 // stale panel: gateway has a newer version than this panel
 check(!document.querySelector('[data-stale-panel]'), 'same version as the gateway: no stale-panel note')
 state.version = '0.10.0'
@@ -220,7 +220,7 @@ await act(async () => root2.unmount())
 const root3 = createRoot(document.getElementById('root'))
 await act(async () => root3.render(pane.render()))
 await flush()
-check(document.querySelector('[data-stale-panel]') && text().includes('0.3.1 → 0.10.0'), 'gateway newer (0.10.0 > 0.3.1, numeric compare) -> stale-panel note')
+check(document.querySelector('[data-stale-panel]') && text().includes('0.3.2 → 0.10.0'), 'gateway newer (0.10.0 > 0.3.2, numeric compare) -> stale-panel note')
 await click(byText('button', 'Open Plugins'))
 check(notes.some(n => n[0] === 'nav' && n[1] === '/capabilities?tab=plugins'), 'stale-panel note opens the Plugins tab')
 state.version = '0.2.0'

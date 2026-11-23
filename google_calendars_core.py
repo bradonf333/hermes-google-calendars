@@ -650,6 +650,7 @@ DEFAULTS = {
     "briefing_phrases": "good morning, morning, gm",
     "briefing_once_per_day": True,
     "briefing_include_tomorrow": False,
+    "briefing_extra": "",
     "briefing_schedule_enabled": False,
     "briefing_time": "07:30",
     "briefing_days": "weekdays",
@@ -883,11 +884,15 @@ def greeting_context(message: str, now=None) -> str | None:
             state["last"] = today
             _save_json(path, state)
     days = (0, 1) if _as_bool(setting("briefing_include_tomorrow")) else (0,)
+    extra = str(setting("briefing_extra") or "").strip()
     return (
-        "[Google Calendars plugin] The user just greeted you. Open your reply with a short, friendly rundown of "
-        "their calendar from the data below: what's first, the shape of the day, any back-to-back or overlapping "
-        "meetings across accounts, and free stretches. Keep it brief, then answer anything else they said.\n\n"
-        + agenda_text(days, now)
+        "[Google Calendars plugin] The user just greeted you. Include a short rundown of their calendar from the "
+        "data below: what's first, the shape of the day, any back-to-back or overlapping meetings across accounts, "
+        "and free stretches. This is an addition, not a replacement: still do and say everything you normally "
+        "would when greeted (any catch-up, updates or checks you usually give), and answer anything else they said. "
+        "Keep the calendar part compact; put it wherever it fits best."
+        + (f"\n\nThe user also asked that the greeting briefing include: {extra}" if extra else "")
+        + "\n\n" + agenda_text(days, now)
     )
 
 
@@ -948,6 +953,11 @@ BRIEFING_PROMPT = (
 )
 
 
+def _briefing_prompt() -> str:
+    extra = str(setting("briefing_extra") or "").strip()
+    return BRIEFING_PROMPT + (f" Also include: {extra}" if extra else "")
+
+
 def sync_jobs() -> dict:
     """Make Hermes's scheduled jobs match the settings: create, update or remove the
     reminder job (no-agent, zero tokens) and the daily briefing job. Idempotent."""
@@ -981,11 +991,12 @@ def sync_jobs() -> dict:
     if want_briefing:
         tz = (setting("time_zone") or "").strip() or None
         if job is None:
-            cj.create_job(BRIEFING_PROMPT, schedule, name=BRIEFING_JOB, deliver=deliver, timezone=tz,
+            cj.create_job(_briefing_prompt(), schedule, name=BRIEFING_JOB, deliver=deliver, timezone=tz,
                           enabled_toolsets=["google_calendars"])
             result["briefing"] = "created"
-        elif (job.get("schedule") or {}).get("expr") != schedule or (job.get("deliver") or None) != deliver:
-            cj.update_job(job["id"], {"schedule": schedule, "deliver": deliver})
+        elif (job.get("schedule") or {}).get("expr") != schedule or (job.get("deliver") or None) != deliver \
+                or job.get("prompt") != _briefing_prompt():
+            cj.update_job(job["id"], {"schedule": schedule, "deliver": deliver, "prompt": _briefing_prompt()})
             result["briefing"] = "updated"
         else:
             result["briefing"] = "ok"

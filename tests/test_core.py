@@ -655,3 +655,19 @@ def test_versions_agree():
 def test_backend_reports_its_version(core):
     import yaml
     assert core.plugin_version() == yaml.safe_load((ROOT / "plugin.yaml").read_text())["version"]
+
+
+def test_greeting_briefing_is_additive_and_takes_extras(core, google, settings):
+    connect(core, google, "me@work.com")
+    settings["briefing_once_per_day"] = False
+    text = core.greeting_context("gm", at(7, 0))
+    assert "not a replacement" in text and "Keep it brief, then" not in text
+    settings["briefing_extra"] = "open PRs and new Slack messages"
+    assert "open PRs and new Slack messages" in core.greeting_context("gm", at(7, 5))
+
+
+def test_briefing_job_prompt_follows_extras(core, cron, settings):
+    settings["briefing_schedule_enabled"] = True
+    core.sync_jobs()
+    settings["briefing_extra"] = "open PRs"
+    assert core.sync_jobs() == {"briefing": "updated"} and cron.jobs[0]["prompt"].endswith("Also include: open PRs")

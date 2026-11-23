@@ -1,6 +1,6 @@
 name: google-calendars
 label: Google Calendars
-version: 0.3.1
+version: 0.3.2
 author: Bradon Fredrickson
 homepage: https://github.com/bradonf333/hermes-google-calendars
 description: >
@@ -90,6 +90,15 @@ config_schema:
     type: bool
     default: false
     label: Include tomorrow in briefings
+  briefing_extra:
+    type: str
+    default: ""
+    label: Also include in briefings
+    description: >
+      Optional. Anything else you want with your calendar, in plain words, e.g.
+      "new Slack and Google Chat messages, open PRs, today's priorities". The
+      calendar rundown is always added on top of your usual greeting reply, never
+      instead of it.
   briefing_schedule_enabled:
     type: bool
     default: false

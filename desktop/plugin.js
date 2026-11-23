@@ -20,9 +20,11 @@ const HOUR_PX = 44
 const REFRESH_MS = 5 * 60 * 1000
 const PAGE = '/calendar'
 // Keep in step with plugin.yaml `version` and the top CHANGELOG entry (a test checks).
-const VERSION = '0.3.1'
+const VERSION = '0.3.2'
 const CHANGELOG_URL = 'https://github.com/bradonf333/hermes-google-calendars/blob/main/CHANGELOG.md'
 const WHATS_NEW = [
+  'Greeting briefings add your calendar to your usual reply instead of replacing it',
+  'New setting: "Also include in briefings" (e.g. messages, PRs, priorities)',
   'The panel now tells you when it\u2019s older than the plugin on your gateway, and how to update it',
   'Duplicate events (same title and time) show once, marked ×2',
   'Event reminders and "good morning" briefings (Settings → Plugins → Google Calendars)'
