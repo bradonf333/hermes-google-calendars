@@ -20,13 +20,12 @@ const HOUR_PX = 44
 const REFRESH_MS = 5 * 60 * 1000
 const PAGE = '/calendar'
 // Keep in step with plugin.yaml `version` and the top CHANGELOG entry (a test checks).
-const VERSION = '0.3.0'
+const VERSION = '0.3.1'
 const CHANGELOG_URL = 'https://github.com/bradonf333/hermes-google-calendars/blob/main/CHANGELOG.md'
 const WHATS_NEW = [
+  'The panel now tells you when it\u2019s older than the plugin on your gateway, and how to update it',
   'Duplicate events (same title and time) show once, marked ×2',
-  'Calendar link in the sidebar, opens as a full page',
-  'Event reminders and "good morning" briefings (Settings → Plugins → Google Calendars)',
-  'This banner: you\u2019ll see what changed after each update'
+  'Event reminders and "good morning" briefings (Settings → Plugins → Google Calendars)'
 ]
 let api = null // plugin ctx, set in register()
 
@@ -813,6 +812,27 @@ function EventEditor({ draft, accounts, onClose, onSaved }) {
 
 // ------------------------------------------------------------------ the pane
 
+const newer = (a, b) => {
+  const pa = String(a).split('.').map(Number), pb = String(b).split('.').map(Number)
+  for (let i = 0; i < 3; i++) if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0)
+  return false
+}
+
+/** When Desktop and the gateway are on different computers, Hermes's Update refreshes the
+ *  gateway's copy but not this panel. Spot that and say how to fix it. */
+function StalePanel({ backendVersion }) {
+  if (!backendVersion || !newer(backendVersion, VERSION)) return null
+  return jsxs('div', {
+    'data-stale-panel': backendVersion,
+    style: { margin: '6px 8px', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--ui-yellow, #d4a72c)', background: 'var(--ui-bg-elevated)', fontSize: 12, display: 'flex', flexDirection: 'column', gap: 4 },
+    children: [
+      jsx('div', { style: { fontWeight: 600 }, children: `Panel update needed: ${VERSION} → ${backendVersion}` }),
+      jsx('div', { style: S.muted, children: 'Google Calendars was updated on your Hermes gateway, but this panel is still the old version (this happens when Desktop and the gateway are on different computers). In Capabilities → Plugins, choose Install from Git → bradonf333/hermes-google-calendars with Force reinstall on.' }),
+      jsx('div', { children: jsx(Button, { size: 'sm', onClick: () => host.navigate('/capabilities?tab=plugins'), children: 'Open Plugins' }) })
+    ]
+  })
+}
+
 /** One-time "What's new" after an update. CalendarPane marks fresh installs (no account yet) as seen. */
 function WhatsNew() {
   const [seen, setSeen] = useState(() => api.storage.get('seenVersion', null))
@@ -966,6 +986,7 @@ function CalendarPane() {
         style: { display: 'flex', justifyContent: 'center', padding: '5px 8px' },
         children: jsx(Seg, { value: view, onChange: changeView, options: [['day', 'Day'], ['week', 'Week'], ['agenda', 'Agenda']] })
       }),
+      jsx(StalePanel, { backendVersion: status?.version }),
       jsx(WhatsNew, {}),
       showFilter && jsx(CalendarFilter, { accounts: calendars, onToggle: toggleCalendar, merge, onMerge: changeMerge }),
       errors.length > 0 && jsx('div', {

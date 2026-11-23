@@ -85,6 +85,12 @@ is in [CHANGELOG.md](CHANGELOG.md) and on the
   auto-update on`) applies updates by itself, except ones that add new tools,
   hooks or permissions: Hermes waits for you to click **Update** for those.
 - Your accounts and settings carry over; new settings start with safe defaults.
+- **Desktop on a different computer than the gateway:** Hermes's Update
+  refreshes the gateway's copy but not the Desktop panel (a current Hermes
+  limitation). The panel shows a *Panel update needed* note when that happens:
+  run **Install from Git** → `bradonf333/hermes-google-calendars` with **Force
+  reinstall** on. Same machine? Nothing to do; press ⌘K → *Reload desktop
+  plugins* if the panel looks unchanged.
 
 ## Google setup (one time, about 5 minutes)
 

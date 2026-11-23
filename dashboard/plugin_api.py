@@ -30,6 +30,7 @@ def _run(fn, *args, **kwargs):
 @router.get("/status")
 def status():
     return {"configured": core.is_configured(), "accounts": _run(core.list_accounts),
+            "version": core.plugin_version(),
             "redirect_uri": core._plugin_settings().get("redirect_uri") or core.DEFAULT_REDIRECT,
             "reminders": {"enabled": core._as_bool(core.setting("reminders_enabled")),
                           "desktop": core._as_bool(core.setting("reminders_desktop")),

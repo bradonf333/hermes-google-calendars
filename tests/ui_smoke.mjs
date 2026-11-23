@@ -40,7 +40,7 @@ writeFileSync(join(tmp, 'plugin.mjs'), src)
 const plugin = (await import(pathToFileURL(join(tmp, 'plugin.mjs')).href)).default
 
 // ---- fake backend
-const state = { configured: false, accounts: [], hidden: [] }
+const state = { configured: false, accounts: [], hidden: [], version: '0.3.1' }
 const calls = []
 const ev = (id, summary, start, end, extra = {}) => ({ id, summary, start, end, all_day: start.length === 10, account_id: 'me@work.com',
   account_label: 'Work', calendar_id: 'me@work.com', calendar_name: 'Work', color: '#4285f4', writable: true, recurring: false,
@@ -73,7 +73,7 @@ const ctx = {
     const p = path.split('?')[0]
     if (p === '/reminders/due') return { reminders: due.splice(0) }
     if (p === '/sync') return { jobs: {} }
-    if (p === '/status') return { configured: state.configured, accounts: state.accounts, redirect_uri: 'http://127.0.0.1:8765/' }
+    if (p === '/status') return { configured: state.configured, accounts: state.accounts, redirect_uri: 'http://127.0.0.1:8765/', version: state.version }
     if (p === '/auth/start') return { auth_url: 'https://accounts.google.com/o/oauth2/v2/auth?x', state: 'st', redirect_uri: 'http://127.0.0.1:8765/' }
     if (p === '/auth/finish') {
       state.accounts = [{ id: 'me@work.com', email: 'me@work.com', label: 'Work', color: '#4285f4', hidden_calendars: [] }]
@@ -204,15 +204,31 @@ await click(hol.querySelector('input'))
 check(calls.some(c => c[0] === 'PATCH' && c[2]?.hidden_calendars?.includes('holidays')), 'unticking a calendar hides it (saved on the account)')
 
 // What's new: silent on a fresh install, shown once after an upgrade
-check(storage.get('seenVersion') === '0.3.0' && !document.querySelector('[data-whats-new]'), 'fresh install: no "What\'s new" banner')
+check(storage.get('seenVersion') === '0.3.1' && !document.querySelector('[data-whats-new]'), 'fresh install: no "What\'s new" banner')
 storage.set('seenVersion', '0.2.2')
 await act(async () => root.unmount())
 const root2 = createRoot(document.getElementById('root'))
 await act(async () => root2.render(pane.render()))
 await flush()
-check(document.querySelector('[data-whats-new]') && text().includes('updated to 0.3.0'), 'after an upgrade: "What\'s new" banner shows')
+check(document.querySelector('[data-whats-new]') && text().includes('updated to 0.3.1'), 'after an upgrade: "What\'s new" banner shows')
 await click(byTitle('Dismiss'))
-check(!document.querySelector('[data-whats-new]') && storage.get('seenVersion') === '0.3.0', 'dismissed banner stays dismissed')
+check(!document.querySelector('[data-whats-new]') && storage.get('seenVersion') === '0.3.1', 'dismissed banner stays dismissed')
+// stale panel: gateway has a newer version than this panel
+check(!document.querySelector('[data-stale-panel]'), 'same version as the gateway: no stale-panel note')
+state.version = '0.10.0'
+await act(async () => root2.unmount())
+const root3 = createRoot(document.getElementById('root'))
+await act(async () => root3.render(pane.render()))
+await flush()
+check(document.querySelector('[data-stale-panel]') && text().includes('0.3.1 → 0.10.0'), 'gateway newer (0.10.0 > 0.3.1, numeric compare) -> stale-panel note')
+await click(byText('button', 'Open Plugins'))
+check(notes.some(n => n[0] === 'nav' && n[1] === '/capabilities?tab=plugins'), 'stale-panel note opens the Plugins tab')
+state.version = '0.2.0'
+await act(async () => root3.unmount())
+const root4 = createRoot(document.getElementById('root'))
+await act(async () => root4.render(pane.render()))
+await flush()
+check(!document.querySelector('[data-stale-panel]'), 'gateway older than the panel: no note')
 check(errors.filter(e => !/act\(/.test(e)).length === 0, `no React errors (${errors.slice(0, 2).join(' | ')})`)
 console.error = origError
 await act(async () => root.unmount())

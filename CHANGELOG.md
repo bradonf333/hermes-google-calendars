@@ -4,6 +4,14 @@ All notable changes to Google Calendars for Hermes. Versions follow
 [semantic versioning](https://semver.org/); the newest is on top. The same
 notes appear in the panel's one-time "What's new" banner after an update.
 
+## 0.3.1 (2026-11-23)
+
+- **Stale panel warning.** When Desktop and the Hermes gateway run on different
+  computers, Hermes's Update refreshes the gateway's copy of the plugin but not
+  the Desktop panel. The panel now compares its version with the gateway's and,
+  when it's behind, explains how to update it (Install from Git with Force
+  reinstall).
+
 ## 0.3.0 (2026-11-23)
 
 - **What's new banner.** After an update the panel shows a one-time note

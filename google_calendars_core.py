@@ -663,6 +663,17 @@ BRIEFING_JOB = JOB_PREFIX + "daily briefing"
 REMINDER_SCRIPT = "google-calendars-reminders.py"
 
 
+def plugin_version() -> str:
+    """The installed agent half's version (plugin.yaml), so the panel can spot a stale copy of itself."""
+    try:
+        for line in (Path(__file__).resolve().parent / "plugin.yaml").read_text(encoding="utf-8").splitlines():
+            if line.startswith("version:"):
+                return line.split(":", 1)[1].strip().strip("'\"")
+    except OSError:
+        pass
+    return ""
+
+
 def setting(key: str):
     v = _plugin_settings().get(key)
     if v is None or (v == "" and isinstance(DEFAULTS[key], bool)):

@@ -634,7 +634,8 @@ def test_reminder_routes(core, google, settings, monkeypatch):
     app = FastAPI()
     app.include_router(m.router)
     c = TestClient(app)
-    assert c.get("/status").json()["reminders"] == {"enabled": True, "desktop": True, "minutes": [10]}
+    st = c.get("/status").json()
+    assert st["reminders"] == {"enabled": True, "desktop": True, "minutes": [10]} and st["version"] == core.plugin_version()
     assert [r["summary"] for r in c.get("/reminders/due").json()["reminders"]] == ["Standup"]
     assert c.get("/reminders/due").json()["reminders"] == []
     settings["reminders_desktop"] = False
@@ -649,3 +650,8 @@ def test_versions_agree():
     js = re.search(r"const VERSION = '([^']+)'", (ROOT / "desktop" / "plugin.js").read_text()).group(1)
     log = re.search(r"^## (\S+)", (ROOT / "CHANGELOG.md").read_text(), re.M).group(1)
     assert manifest == js == log
+
+
+def test_backend_reports_its_version(core):
+    import yaml
+    assert core.plugin_version() == yaml.safe_load((ROOT / "plugin.yaml").read_text())["version"]
