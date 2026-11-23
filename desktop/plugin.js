@@ -11,13 +11,14 @@
  * Tailwind build.
  */
 
-import { Button, Codicon, Input, PALETTE_AREA, Textarea, host } from '@hermes/plugin-sdk'
+import { Button, Codicon, Input, PALETTE_AREA, ROUTES_AREA, SIDEBAR_NAV_AREA, Textarea, host } from '@hermes/plugin-sdk'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { jsx, jsxs } from 'react/jsx-runtime'
 
 const ID = 'google-calendars'
 const HOUR_PX = 44
 const REFRESH_MS = 5 * 60 * 1000
+const PAGE = '/calendar'
 let api = null // plugin ctx, set in register()
 
 // ------------------------------------------------------------------ backend
@@ -956,6 +957,13 @@ export default {
         title: 'Calendar',
         data: { placement: 'right', width: '380px' },
         render: () => jsx(CalendarPane, {})
+      },
+      { id: 'page', area: ROUTES_AREA, title: 'Calendar', data: { path: PAGE }, render: () => jsx(CalendarPane, {}) },
+      { id: 'nav', area: SIDEBAR_NAV_AREA, data: { path: PAGE, label: 'Calendar', codicon: 'calendar' } },
+      {
+        id: 'open-page',
+        area: PALETTE_AREA,
+        data: { id: `${ID}.open`, label: 'Open Calendar', keywords: ['calendar', 'google', 'events', 'schedule'], run: () => host.navigate(PAGE) }
       },
       {
         id: 'open',

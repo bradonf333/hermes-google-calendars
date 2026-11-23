@@ -6,8 +6,10 @@ plus calendar tools for the agent.
 
 - **One calendar, many accounts.** Connect as many Google accounts as you like
   (work, side job, personal). Their calendars are merged and color-coded.
-- **A docked panel.** Opens on the right side like the Files pane: drag it
-  anywhere, collapse it to a tab, open it again.
+- **A docked panel and a full page.** The pane opens on the right side like
+  the Files pane: drag it anywhere, collapse it to a tab, open it again. A
+  **Calendar** link in the sidebar (or *Open Calendar* in the command palette)
+  opens it as a full page, whatever your layout.
 - **Day, Week and Agenda views.** Overlapping events sit side by side, all-day
   events get their own row, and a line marks the current time.
 - **Manage events.** Click an event for details, the video link and guests.
@@ -215,7 +217,7 @@ Reminder and briefing settings (all under **Settings → Plugins → Google Cale
 | Problem | Fix |
 |---|---|
 | Panel says *Backend unavailable* | `google-calendars` isn't in `plugins.enabled`, or the gateway wasn't restarted after installing |
-| No Calendar pane | Turn on the desktop half under **Capabilities → Plugins**. If you closed the pane, use **Reset layout** |
+| No Calendar pane | Turn on the desktop half under **Capabilities → Plugins**. The sidebar **Calendar** link always works; to get the pane back, use **Reset layout** |
 | *"needs to sign in again"* after about a week | The consent screen is still in **Testing**. Publish it (step 3), then remove the account and add it again |
 | *"didn't return a refresh token"* | Remove the app at myaccount.google.com/permissions, then add the account again |
 | *redirect_uri_mismatch* | The OAuth client isn't a **Desktop app** client. Create one of that type |

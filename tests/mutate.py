@@ -33,6 +33,8 @@ MUTANTS = [
     ("UI: reminders only while pane open", "desktop/plugin.js",
      "    ctx.setInterval(pollReminders, REMINDER_POLL_MS)\n", "", UI),
     ("UI: reminder toast missing", "desktop/plugin.js", "  host.notify({\n    kind: 'info',\n    title: '📅 ' + title,", "  void ({\n    kind: 'info',\n    title: '📅 ' + title,", UI),
+    ("UI: no sidebar link", "desktop/plugin.js",
+     "      { id: 'nav', area: SIDEBAR_NAV_AREA, data: { path: PAGE, label: 'Calendar', codicon: 'calendar' } },\n", "", UI),
     ("hook not registered", "__init__.py",
      'ctx.register_hook("pre_llm_call", _on_pre_llm_call)', "pass", PY),
     ("sign-in state can be reused", "google_calendars_core.py",

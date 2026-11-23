@@ -27,6 +27,8 @@ globalThis.__sdk = {
   Textarea: props => React.createElement('textarea', props),
   Codicon: ({ name }) => React.createElement('i', { 'data-icon': name }),
   PALETTE_AREA: 'palette',
+  ROUTES_AREA: 'routes',
+  SIDEBAR_NAV_AREA: 'sidebar.nav',
   host: { navigate: p => notes.push(['nav', p]), notify: n => notes.push(['notify', n.kind, n.message, n]), onEvent: () => () => {} }
 }
 const tmp = mkdtempSync(join(tmpdir(), 'gcal-ui-'))
@@ -107,6 +109,8 @@ console.error = (...a) => { errors.push(a.join(' ')); }
 
 // ---- run
 check(pane && pane.data.placement === 'right', 'registers a right-side pane')
+const page = ctx.contribs.find(c => c.area === 'routes'), nav = ctx.contribs.find(c => c.area === 'sidebar.nav')
+check(page && nav && page.data.path === '/calendar' && nav.data.path === '/calendar' && nav.data.label === 'Calendar', 'registers a full-page route + sidebar link')
 
 // reminders: polled from register() (not the pane), shown as OS notification + toast
 const poll = ctx.timers.find(t => t[0] === 'interval')
