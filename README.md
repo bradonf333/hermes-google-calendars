@@ -14,6 +14,11 @@ plus calendar tools for the agent.
   Edit or delete it, or create one on any calendar you can write to.
   Double-click an empty slot to start a new event there.
 - **Show or hide calendars** per account (the choice is remembered).
+- **Reminders** before events, as a desktop notification and an in-app toast
+  (Mac, Windows, Linux), and optionally in Slack, Telegram or any chat Hermes
+  already delivers to.
+- **Morning briefings.** Say "good morning" (or your own phrase) and Hermes
+  opens its reply with your day, and/or get a scheduled briefing at a set time.
 - **Agent tools**, so you can ask things like *"what's on my calendar
   tomorrow?"*, *"when am I free Thursday across all my calendars?"* or
   *"put a 30 minute review on my work calendar at 2pm Tuesday"*.
@@ -164,6 +169,47 @@ Guests are only emailed when the agent explicitly asks to (`send_updates`).
 | OAuth Client secret | | Stored as `GOOGLE_CALENDARS_CLIENT_SECRET` in `.env` |
 | Redirect address | `http://127.0.0.1:8765/` | Change only if you need a different port. Desktop clients accept any `127.0.0.1` port |
 
+Reminder and briefing settings (all under **Settings → Plugins → Google Calendars**):
+
+| Setting | Default | |
+|---|---|---|
+| Event reminders | on | Master switch |
+| Remind me (minutes before) | `10` | One or more, e.g. `60, 10` |
+| Show reminders in Hermes Desktop | on | Desktop notification + in-app toast, while the app is open |
+| Also send reminders to | empty | A Hermes delivery target: `slack`, `telegram`, `discord` (home channel) or `slack:<channel or user id>` |
+| Skip events I declined | on | |
+| Skip all-day events | on | |
+| Quiet hours | empty | e.g. `22:00-07:00` |
+| Brief me when I greet Hermes | on | |
+| Greeting phrases | `good morning, morning, gm` | Matched at the start of a message |
+| Greeting briefing once per day | on | Off = every time |
+| Include tomorrow in briefings | off | |
+| Scheduled daily briefing | off | |
+| Briefing time / days | `07:30`, weekdays | |
+| Send the briefing to | empty | A delivery target; empty = your Hermes home chat |
+| Time zone | empty | IANA name; empty = the gateway computer's zone |
+
+### How reminders and briefings work
+
+- **Desktop reminders** come from the Desktop app checking the gateway once a
+  minute (even with the Calendar pane closed). Each reminder shows once.
+- **Chat reminders** run as a Hermes scheduled job named *"Google Calendars:
+  event reminders"* in script-only mode: a small script checks your calendars
+  every minute and only sends when something is due. No AI run, no tokens. It
+  works while Desktop is closed, as long as the gateway is running. It uses the
+  chat connections Hermes already has; there's nothing extra to set up. To
+  refresh Google tokens from that script, the plugin adds
+  `GOOGLE_CALENDARS_CLIENT_SECRET` to `terminal.env_passthrough`.
+- **Greeting briefings** use a `pre_llm_call` hook: when your message starts
+  with a greeting phrase, today's agenda is handed to the model with that one
+  message, and it opens its reply with a rundown.
+- **Scheduled briefings** are a regular Hermes scheduled job, *"Google
+  Calendars: daily briefing"*, limited to the calendar tools.
+- The scheduled jobs are created, updated and removed to match your settings
+  whenever Desktop starts or the settings change. You'll see them under
+  scheduled jobs (`hermes cron list`); change them through the plugin settings,
+  not by hand.
+
 ## Troubleshooting
 
 | Problem | Fix |
@@ -173,6 +219,8 @@ Guests are only emailed when the agent explicitly asks to (`send_updates`).
 | *"needs to sign in again"* after about a week | The consent screen is still in **Testing**. Publish it (step 3), then remove the account and add it again |
 | *"didn't return a refresh token"* | Remove the app at myaccount.google.com/permissions, then add the account again |
 | *redirect_uri_mismatch* | The OAuth client isn't a **Desktop app** client. Create one of that type |
+| No reminder notifications | Check Settings ▸ Notifications ▸ "Plugin notifications" and your OS notification settings for Hermes. The in-app toast still shows while the app is focused |
+| Chat reminders never arrive | Check the target with `hermes send --list`, and that the gateway is running |
 | A work account is blocked | See [Work or school accounts](#work-or-school-accounts-google-workspace) |
 
 ## Development

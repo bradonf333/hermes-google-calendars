@@ -27,7 +27,7 @@ globalThis.__sdk = {
   Textarea: props => React.createElement('textarea', props),
   Codicon: ({ name }) => React.createElement('i', { 'data-icon': name }),
   PALETTE_AREA: 'palette',
-  host: { navigate: p => notes.push(['nav', p]), notify: n => notes.push(['notify', n.kind, n.message]), onEvent: () => () => {} }
+  host: { navigate: p => notes.push(['nav', p]), notify: n => notes.push(['notify', n.kind, n.message, n]), onEvent: () => () => {} }
 }
 const tmp = mkdtempSync(join(tmpdir(), 'gcal-ui-'))
 const src = readFileSync(join(here, '..', 'desktop', 'plugin.js'), 'utf8')
@@ -50,14 +50,24 @@ const tomorrow = new Date(today.getFullYear(), today.getMonth(), today.getDate()
 const events = [ev('a', 'Standup', iso(9), iso(9, 15), { recurring: true }), ev('b', 'Overlap', iso(9), iso(10)),
   ev('c', 'Holiday', ymd(today), ymd(tomorrow), { writable: false, calendar_name: 'Holidays' })]
 const storage = new Map()
+const osNotes = []
+const due = []
 const ctx = {
   storage: { get: (k, d) => (storage.has(k) ? storage.get(k) : d), set: (k, v) => storage.set(k, v) },
-  os: { openExternal: async url => (calls.push(['open', url]), true), writeClipboard: async () => true },
+  os: { openExternal: async url => (calls.push(['open', url]), true), writeClipboard: async () => true,
+    notify: n => (osNotes.push(n), true) },
   registerMany: cs => (ctx.contribs = cs),
+  timers: [],
+  setTimeout: (fn, ms) => (ctx.timers.push(['timeout', fn, ms]), () => {}),
+  setInterval: (fn, ms) => (ctx.timers.push(['interval', fn, ms]), () => {}),
+  onEvent: (type, fn) => (ctx.listeners.push([type, fn]), () => {}),
+  listeners: [],
   rest: async (path, opts = {}) => {
     const method = opts.method || 'GET'
     calls.push([method, path, opts.body])
     const p = path.split('?')[0]
+    if (p === '/reminders/due') return { reminders: due.splice(0) }
+    if (p === '/sync') return { jobs: {} }
     if (p === '/status') return { configured: state.configured, accounts: state.accounts, redirect_uri: 'http://127.0.0.1:8765/' }
     if (p === '/auth/start') return { auth_url: 'https://accounts.google.com/o/oauth2/v2/auth?x', state: 'st', redirect_uri: 'http://127.0.0.1:8765/' }
     if (p === '/auth/finish') {
@@ -97,6 +107,23 @@ console.error = (...a) => { errors.push(a.join(' ')); }
 
 // ---- run
 check(pane && pane.data.placement === 'right', 'registers a right-side pane')
+
+// reminders: polled from register() (not the pane), shown as OS notification + toast
+const poll = ctx.timers.find(t => t[0] === 'interval')
+check(poll && poll[2] === 60000, 'reminders poll every minute from register()')
+check(ctx.listeners.some(l => l[0] === 'plugin.google-calendars.settings.changed'), 'settings changes re-sync scheduled jobs')
+await act(async () => { ctx.timers.find(t => t[0] === 'timeout')[1]() }); await flush()
+check(calls.some(c => c[0] === 'POST' && c[1] === '/sync'), 'startup syncs scheduled jobs')
+due.push({ id: 'r1', summary: 'Standup', minutes: 10, time: '9:00 AM', account_label: 'Work', location: '', meet_link: 'https://meet.google.com/abc', html_link: 'https://cal/x' })
+await act(async () => { await poll[1]() }); await flush()
+check(osNotes.length === 1 && osNotes[0].title === 'In 10 min: Standup' && osNotes[0].body.includes('9:00 AM'), 'due reminder -> OS notification')
+const toast = notes.find(n => n[0] === 'notify' && n[3]?.title?.includes('Standup'))
+check(toast && toast[3].action?.label === 'Join', 'due reminder -> in-app toast with Join')
+toast?.[3].action.onClick()
+check(calls.some(c => c[0] === 'open' && c[1] === 'https://meet.google.com/abc'), 'Join opens the meeting link')
+await act(async () => { await poll[1]() }); await flush()
+check(osNotes.length === 1, 'nothing due -> no notification')
+calls.length = 0
 const root = createRoot(document.getElementById('root'))
 await act(async () => root.render(pane.render()))
 await flush()

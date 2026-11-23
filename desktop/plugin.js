@@ -619,7 +619,7 @@ function EventDetail({ e, onClose, onEdit, onDeleted }) {
           ]
         }),
         row('clock', jsxs('span', { children: [when, e.recurring && jsx('span', { style: S.faint, children: ' · repeats' })] })),
-        row('calendar', `${e.calendar_name} · ${e.account_label}`),
+        row('calendar', e.calendar_name === e.account_label ? e.calendar_name : `${e.calendar_name} · ${e.account_label}`),
         row('location', e.location),
         e.meet_link && row('device-camera-video', jsx('a', { href: '#', onClick: ev => { ev.preventDefault(); openUrl(e.meet_link) }, style: { color: 'var(--ui-accent)' }, children: 'Join video call' })),
         e.attendees.length > 0 && row('organization', jsx('div', {
@@ -642,10 +642,10 @@ function Overlay({ children, onClose }) {
   }, [onClose])
   return jsx('div', {
     onClick: onClose,
-    style: { position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.35)', zIndex: 20, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 10, overflowY: 'auto' },
+    style: { position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 20, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 10, overflowY: 'auto' },
     children: jsx('div', {
       onClick: ev => ev.stopPropagation(),
-      style: { ...S.card, background: 'var(--ui-bg-primary)', width: '100%', maxWidth: 460, padding: 12, boxShadow: '0 8px 30px rgba(0,0,0,0.35)' },
+      style: { ...S.card, background: 'var(--ui-bg-elevated)', width: '100%', maxWidth: 460, padding: 12, boxShadow: '0 8px 30px rgba(0,0,0,0.45)' },
       children
     })
   })
@@ -901,11 +901,54 @@ function CalendarPane() {
   })
 }
 
+// ---- reminders (run from register(), so they fire even when the pane is closed)
+
+const REMINDER_POLL_MS = 60 * 1000
+
+function showReminder(r) {
+  const title = r.minutes <= 1 ? `Starting now: ${r.summary}` : `In ${r.minutes} min: ${r.summary}`
+  const body = [r.time, r.account_label, r.location].filter(Boolean).join(' · ')
+  const link = r.meet_link || r.html_link
+  // OS notification shows when Hermes is in the background; the toast covers the focused case.
+  api.os?.notify?.({
+    title,
+    body,
+    onActivate: () => link && api.os?.openExternal?.(link),
+    actions: r.meet_link ? [{ id: 'join', label: 'Join', onAction: () => api.os?.openExternal?.(r.meet_link) }] : undefined
+  })
+  host.notify({
+    kind: 'info',
+    title: '📅 ' + title,
+    message: body,
+    action: r.meet_link ? { label: 'Join', onClick: () => api.os?.openExternal?.(r.meet_link) } : undefined
+  })
+}
+
+async function pollReminders() {
+  try {
+    const res = await rest.get('/reminders/due')
+    for (const r of res.reminders || []) showReminder(r)
+  } catch {
+    // gateway offline or not set up yet; try again next minute
+  }
+}
+
+async function syncJobs() {
+  try {
+    await rest.post('/sync', {})
+  } catch (e) {
+    host.notify({ kind: 'warning', message: `Google Calendars: ${errText(e)}` })
+  }
+}
+
 export default {
   id: ID, // must match the folder name
   name: 'Google Calendars',
   register(ctx) {
     api = ctx
+    ctx.setTimeout(() => { syncJobs(); pollReminders() }, 5000)
+    ctx.setInterval(pollReminders, REMINDER_POLL_MS)
+    ctx.onEvent(`plugin.${ID}.settings.changed`, () => syncJobs())
     ctx.registerMany([
       {
         id: 'pane',

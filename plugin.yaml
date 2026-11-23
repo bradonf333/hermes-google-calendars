@@ -1,6 +1,6 @@
 name: google-calendars
 label: Google Calendars
-version: 0.1.0
+version: 0.2.0
 author: Bradon Fredrickson
 homepage: https://github.com/bradonf333/hermes-google-calendars
 description: >
@@ -32,6 +32,91 @@ config_schema:
       Where Google sends the browser after sign-in. The page won't load; you
       copy its address back into the panel. Leave as is unless port 8765 is
       taken on your machine.
+  reminders_enabled:
+    type: bool
+    default: true
+    label: Event reminders
+    description: Remind me before events start.
+  reminder_minutes:
+    type: str
+    default: "10"
+    label: Remind me (minutes before)
+    description: One or more, comma separated, e.g. "10" or "60, 10".
+  reminders_desktop:
+    type: bool
+    default: true
+    label: Show reminders in Hermes Desktop
+    description: >
+      Desktop notification plus an in-app toast (Mac, Windows, Linux). Works
+      while the Desktop app is open.
+  reminder_chat_target:
+    type: str
+    default: ""
+    label: Also send reminders to
+    description: >
+      Optional. A chat Hermes already delivers to, written like a cron delivery
+      target: "slack", "telegram", "discord" (home channel) or "slack:<channel or
+      user id>". Leave empty for Desktop only. Works even when Desktop is closed;
+      runs as a script-only scheduled job (no AI, no tokens).
+  reminder_skip_declined:
+    type: bool
+    default: true
+    label: Skip events I declined
+  reminder_skip_all_day:
+    type: bool
+    default: true
+    label: Skip all-day events
+  reminder_quiet_hours:
+    type: str
+    default: ""
+    label: Quiet hours
+    description: No reminders in this window, e.g. "22:00-07:00". Empty = none.
+  briefing_greeting_enabled:
+    type: bool
+    default: true
+    label: Brief me when I greet Hermes
+    description: When a message starts with one of the phrases below, Hermes opens its reply with your day.
+  briefing_phrases:
+    type: str
+    default: "good morning, morning, gm"
+    label: Greeting phrases
+    description: Comma separated. Matched at the start of a message, any capitalization.
+  briefing_once_per_day:
+    type: bool
+    default: true
+    label: Greeting briefing once per day
+    description: Off = brief me every time I use a greeting phrase.
+  briefing_include_tomorrow:
+    type: bool
+    default: false
+    label: Include tomorrow in briefings
+  briefing_schedule_enabled:
+    type: bool
+    default: false
+    label: Scheduled daily briefing
+    description: Hermes sends you a calendar briefing at a set time (an AI run, so it uses a few tokens).
+  briefing_time:
+    type: str
+    default: "07:30"
+    label: Briefing time
+    description: 24-hour local time, e.g. 07:30.
+  briefing_days:
+    type: str
+    choices: [weekdays, every day, weekends]
+    default: weekdays
+    label: Briefing days
+  briefing_deliver:
+    type: str
+    default: ""
+    label: Send the briefing to
+    description: >
+      A delivery target like "slack" or "telegram". Empty = your Hermes home
+      chat (local).
+  time_zone:
+    type: str
+    default: ""
+    label: Time zone
+    description: IANA name like America/Denver. Empty = the gateway computer's time zone.
 provides_tools:
   - google_calendar_calendars
   - google_calendar_events
@@ -39,4 +124,5 @@ provides_tools:
   - google_calendar_update_event
   - google_calendar_delete_event
   - google_calendar_free_busy
-provides_hooks: []
+provides_hooks:
+  - pre_llm_call

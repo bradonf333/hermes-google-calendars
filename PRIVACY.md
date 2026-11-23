@@ -33,6 +33,11 @@ server, receive your data, or have access to your Google account or calendars.
   `~/.hermes/plugin-data/google-calendars/accounts.json` on the machine running
   your Hermes gateway, readable only by your user account.
 - Your display preferences (account names and colors, hidden calendars).
+- Which reminders were already shown (event IDs and times, kept two days) and
+  the date of your last greeting briefing, so nothing repeats.
+- If you turn on chat reminders or a scheduled briefing, Hermes scheduled jobs
+  that send them to a chat app you already connected to Hermes. Reminder text
+  (event title, time, link) then goes through that chat service.
 - Calendar events are not stored; they are fetched when you view them.
 
 ## Removing access

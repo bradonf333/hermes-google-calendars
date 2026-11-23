@@ -634,3 +634,351 @@ def free_busy(time_min: str, time_max: str, account: str | None = None) -> list[
         except CalendarError as e:
             out.append({"account": a.get("label") or a["email"], "error": str(e)})
     return out
+
+
+# ================================================================ reminders + briefings
+
+DEFAULTS = {
+    "reminders_enabled": True,
+    "reminder_minutes": "10",
+    "reminders_desktop": True,
+    "reminder_chat_target": "",
+    "reminder_skip_declined": True,
+    "reminder_skip_all_day": True,
+    "reminder_quiet_hours": "",
+    "briefing_greeting_enabled": True,
+    "briefing_phrases": "good morning, morning, gm",
+    "briefing_once_per_day": True,
+    "briefing_include_tomorrow": False,
+    "briefing_schedule_enabled": False,
+    "briefing_time": "07:30",
+    "briefing_days": "weekdays",
+    "briefing_deliver": "",
+    "time_zone": "",
+}
+
+JOB_PREFIX = "Google Calendars: "
+REMINDER_JOB = JOB_PREFIX + "event reminders"
+BRIEFING_JOB = JOB_PREFIX + "daily briefing"
+REMINDER_SCRIPT = "google-calendars-reminders.py"
+
+
+def setting(key: str):
+    v = _plugin_settings().get(key)
+    if v is None or (v == "" and isinstance(DEFAULTS[key], bool)):
+        return DEFAULTS[key]
+    return v
+
+
+def _as_bool(v) -> bool:
+    if isinstance(v, str):
+        return v.strip().lower() in ("1", "true", "yes", "on")
+    return bool(v)
+
+
+def lead_minutes() -> list[int]:
+    out = set()
+    for part in str(setting("reminder_minutes") or "").replace(";", ",").split(","):
+        part = part.strip()
+        if part.isdigit() and 0 < int(part) <= 7 * 24 * 60:
+            out.add(int(part))
+    return sorted(out, reverse=True) or [10]
+
+
+def _tz():
+    from datetime import datetime
+    name = (setting("time_zone") or "").strip()
+    if name:
+        try:
+            from zoneinfo import ZoneInfo
+            return ZoneInfo(name)
+        except Exception:
+            pass
+    return datetime.now().astimezone().tzinfo
+
+
+def _now():
+    from datetime import datetime
+    return datetime.now(_tz())
+
+
+def _parse_when(v: str):
+    from datetime import datetime
+    if len(v) == 10:
+        return datetime.fromisoformat(v).replace(tzinfo=_tz())
+    return datetime.fromisoformat(v.replace("Z", "+00:00")).astimezone(_tz())
+
+
+def in_quiet_hours(now) -> bool:
+    spec = (setting("reminder_quiet_hours") or "").strip()
+    if "-" not in spec:
+        return False
+    try:
+        a, b = [x.strip() for x in spec.split("-", 1)]
+        start = int(a[:2]) * 60 + int(a[3:5])
+        end = int(b[:2]) * 60 + int(b[3:5])
+    except (ValueError, IndexError):
+        return False
+    m = now.hour * 60 + now.minute
+    return start <= m < end if start <= end else (m >= start or m < end)
+
+
+def _declined(ev: dict) -> bool:
+    return any(a.get("self") and a.get("response") == "declined" for a in ev.get("attendees", []))
+
+
+_SENT_FILE = "reminders_sent.json"
+
+
+def _sent_path() -> Path:
+    return data_dir() / _SENT_FILE
+
+
+def _load_json(path: Path) -> dict:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_json(path: Path, data: dict) -> None:
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".tmp.", suffix=".json")
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        json.dump(data, fh)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, path)
+
+
+def _fmt_time(dt) -> str:
+    return dt.strftime("%I:%M %p").lstrip("0")
+
+
+def due_reminders(consumer: str, now=None) -> list[dict]:
+    """Reminders due right now for one channel ("desktop" or "chat"), each sent once.
+
+    An event is due for lead L when start - L <= now < start. If several leads are
+    due at once (the app was closed), only one reminder goes out for that event.
+    """
+    from datetime import timedelta
+    if not _as_bool(setting("reminders_enabled")):
+        return []
+    if not is_configured() or not list_accounts():
+        return []
+    now = now or _now()
+    leads = lead_minutes()
+    res = list_events(now.isoformat(), (now + timedelta(minutes=max(leads) + 1)).isoformat())
+    skip_all_day = _as_bool(setting("reminder_skip_all_day"))
+    skip_declined = _as_bool(setting("reminder_skip_declined"))
+    quiet = in_quiet_hours(now)
+    out = []
+    with _file_lock():
+        sent = _load_json(_sent_path())
+        cutoff = time.time() - 2 * 86400
+        sent = {k: v for k, v in sent.items() if v > cutoff}
+        for ev in res["events"]:
+            if (ev["all_day"] and skip_all_day) or (skip_declined and _declined(ev)):
+                continue
+            start = _parse_when(ev["start"])
+            if start <= now:
+                continue
+            due = [L for L in leads if start - timedelta(minutes=L) <= now]
+            fresh = [L for L in due if f"{consumer}|{ev['account_id']}|{ev['id']}|{ev['start']}|{L}" not in sent]
+            if not fresh:
+                continue
+            for L in due:
+                sent[f"{consumer}|{ev['account_id']}|{ev['id']}|{ev['start']}|{L}"] = start.timestamp()
+            if quiet:
+                continue
+            mins = max(1, round((start - now).total_seconds() / 60))
+            out.append({
+                "id": ev["id"], "account_id": ev["account_id"], "calendar_id": ev["calendar_id"],
+                "summary": ev["summary"], "account_label": ev["account_label"],
+                "start": ev["start"], "minutes": mins, "time": _fmt_time(start),
+                "location": ev["location"], "meet_link": ev.get("meet_link"), "html_link": ev.get("html_link"),
+            })
+        _save_json(_sent_path(), sent)
+    return out
+
+
+def reminder_text(reminders: list[dict]) -> str:
+    lines = []
+    for r in reminders:
+        line = f"⏰ In {r['minutes']} min ({r['time']}): {r['summary']} · {r['account_label']}"
+        if r.get("meet_link"):
+            line += f"\n   Join: {r['meet_link']}"
+        elif r.get("location"):
+            line += f"\n   Where: {r['location']}"
+        lines.append(line)
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------- greeting briefing
+
+def _phrases() -> list[str]:
+    return [p.strip().lower() for p in str(setting("briefing_phrases") or "").split(",") if p.strip()]
+
+
+def is_greeting(message: str) -> bool:
+    import re
+    text = re.sub(r"\s+", " ", (message or "").strip().lower())
+    for p in sorted(_phrases(), key=len, reverse=True):
+        if text == p or re.match(re.escape(p) + r"(?![a-z0-9])", text):
+            return True
+    return False
+
+
+def agenda_text(day_offset_list=(0,), now=None) -> str:
+    from datetime import timedelta
+    now = now or _now()
+    blocks = []
+    for off in day_offset_list:
+        day = (now + timedelta(days=off)).replace(hour=0, minute=0, second=0, microsecond=0)
+        res = list_events(day.isoformat(), (day + timedelta(days=1)).isoformat())
+        label = "Today" if off == 0 else "Tomorrow" if off == 1 else day.strftime("%A")
+        lines = [f"{label} ({day.strftime('%A, %B %d').replace(' 0', ' ')}):"]
+        evs = [e for e in res["events"] if not _declined(e)]
+        if not evs:
+            lines.append("  (nothing scheduled)")
+        for e in evs:
+            if e["all_day"]:
+                when = "all day"
+            else:
+                when = f"{_fmt_time(_parse_when(e['start']))}-{_fmt_time(_parse_when(e['end']))}"
+            extra = " [video call]" if e.get("meet_link") else (f" @ {e['location']}" if e["location"] else "")
+            lines.append(f"  - {when}: {e['summary']} ({e['account_label']}){extra}")
+        for err in res["errors"]:
+            lines.append(f"  ! could not read {err['account']}: {err['error']}")
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)
+
+
+_BRIEFED_FILE = "briefed.json"
+
+
+def greeting_context(message: str, now=None) -> str | None:
+    """Context for the pre_llm_call hook, or None when this message shouldn't trigger a briefing."""
+    if not _as_bool(setting("briefing_greeting_enabled")) or not is_greeting(message):
+        return None
+    if not is_configured() or not list_accounts():
+        return None
+    now = now or _now()
+    today = now.strftime("%Y-%m-%d")
+    if _as_bool(setting("briefing_once_per_day")):
+        with _file_lock():
+            path = data_dir() / _BRIEFED_FILE
+            state = _load_json(path)
+            if state.get("last") == today:
+                return None
+            state["last"] = today
+            _save_json(path, state)
+    days = (0, 1) if _as_bool(setting("briefing_include_tomorrow")) else (0,)
+    return (
+        "[Google Calendars plugin] The user just greeted you. Open your reply with a short, friendly rundown of "
+        "their calendar from the data below: what's first, the shape of the day, any back-to-back or overlapping "
+        "meetings across accounts, and free stretches. Keep it brief, then answer anything else they said.\n\n"
+        + agenda_text(days, now)
+    )
+
+
+# ---------------------------------------------------------------- scheduled jobs (Hermes cron)
+
+def _hermes_home() -> Path:
+    return Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes"))
+
+
+def _write_reminder_script() -> str:
+    scripts = _hermes_home() / "scripts"
+    scripts.mkdir(parents=True, exist_ok=True)
+    plugin_dir = str(Path(__file__).resolve().parent)
+    body = (
+        "# Written by the google-calendars plugin: prints calendar reminders that are due for chat\n"
+        "# delivery (empty output = nothing due). Managed automatically; edits are overwritten.\n"
+        "import os, sys\n"
+        f"os.environ.setdefault('HERMES_HOME', {str(_hermes_home())!r})\n"
+        f"sys.path.insert(0, {plugin_dir!r})\n"
+        "import google_calendars_core as c\n"
+        "print(c.reminder_text(c.due_reminders('chat')))\n"
+    )
+    path = scripts / REMINDER_SCRIPT
+    if not path.exists() or path.read_text(encoding="utf-8") != body:
+        path.write_text(body, encoding="utf-8")
+    return REMINDER_SCRIPT
+
+
+def _ensure_secret_passthrough() -> None:
+    """Cron scripts get a sanitized environment; Hermes's documented way to hand one a
+    credential is terminal.env_passthrough. Needed so the reminder script can refresh tokens."""
+    from hermes_cli.config import load_config, save_config
+    cfg = load_config()
+    term = cfg.setdefault("terminal", {})
+    lst = list(term.get("env_passthrough") or [])
+    if SECRET_ENV not in lst:
+        lst.append(SECRET_ENV)
+        term["env_passthrough"] = lst
+        save_config(cfg)
+
+
+def _briefing_schedule() -> str:
+    t = str(setting("briefing_time") or "07:30").strip()
+    try:
+        hh, mm = int(t[:2]), int(t[3:5])
+    except ValueError:
+        hh, mm = 7, 30
+    days = {"weekdays": "1-5", "every day": "*", "everyday": "*", "daily": "*", "weekends": "0,6"}.get(
+        str(setting("briefing_days") or "weekdays").strip().lower(), "1-5")
+    return f"{mm} {hh} * * {days}"
+
+
+BRIEFING_PROMPT = (
+    "Give me my calendar briefing for today. Use google_calendar_events for today across all my connected "
+    "accounts (and google_calendar_free_busy if useful). Lead with the first event, then the shape of the day: "
+    "meetings in order with times and which account, back-to-back or overlapping meetings, and free stretches. "
+    "Short and skimmable; no preamble."
+)
+
+
+def sync_jobs() -> dict:
+    """Make Hermes's scheduled jobs match the settings: create, update or remove the
+    reminder job (no-agent, zero tokens) and the daily briefing job. Idempotent."""
+    from cron import jobs as cj
+    existing = {j.get("name"): j for j in cj.list_jobs(include_disabled=True) if str(j.get("name", "")).startswith(JOB_PREFIX)}
+    result = {}
+
+    target = str(setting("reminder_chat_target") or "").strip()
+    want_reminders = bool(target) and _as_bool(setting("reminders_enabled"))
+    job = existing.get(REMINDER_JOB)
+    if want_reminders:
+        script = _write_reminder_script()
+        _ensure_secret_passthrough()
+        if job is None:
+            cj.create_job(None, "every 1m", name=REMINDER_JOB, deliver=target, script=script, no_agent=True,
+                          grace_minutes=0)
+            result["reminders"] = "created"
+        elif job.get("deliver") != target:
+            cj.update_job(job["id"], {"deliver": target})
+            result["reminders"] = "updated"
+        else:
+            result["reminders"] = "ok"
+    elif job is not None:
+        cj.remove_job(job["id"])
+        result["reminders"] = "removed"
+
+    want_briefing = _as_bool(setting("briefing_schedule_enabled"))
+    deliver = str(setting("briefing_deliver") or "").strip() or None
+    schedule = _briefing_schedule()
+    job = existing.get(BRIEFING_JOB)
+    if want_briefing:
+        tz = (setting("time_zone") or "").strip() or None
+        if job is None:
+            cj.create_job(BRIEFING_PROMPT, schedule, name=BRIEFING_JOB, deliver=deliver, timezone=tz,
+                          enabled_toolsets=["google_calendars"])
+            result["briefing"] = "created"
+        elif (job.get("schedule") or {}).get("expr") != schedule or (job.get("deliver") or None) != deliver:
+            cj.update_job(job["id"], {"schedule": schedule, "deliver": deliver})
+            result["briefing"] = "updated"
+        else:
+            result["briefing"] = "ok"
+    elif job is not None:
+        cj.remove_job(job["id"])
+        result["briefing"] = "removed"
+    return result

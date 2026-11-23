@@ -342,11 +342,17 @@ def tools(core):
 def test_tools_register_with_check_fn(tools):
     seen = []
 
+    hooks = []
+
     class Ctx:
         def register_tool(self, **kw):
             seen.append(kw)
 
+        def register_hook(self, name, fn):
+            hooks.append(name)
+
     tools.register(Ctx())
+    assert hooks == ["pre_llm_call"]
     assert [s["name"] for s in seen] == [t[0]["name"] for t in tools.TOOLS]
     assert all(callable(s["check_fn"]) for s in seen)
 
@@ -393,3 +399,243 @@ def test_routes(core, google):
     assert c.request("DELETE", "/events/w1", params={"account_id": "me@work.com", "calendar_id": "primary"}).json() == {"ok": True}
     assert c.patch("/accounts/me@work.com", json={"hidden_calendars": ["holidays"]}).json()["hidden_calendars"] == ["holidays"]
     assert c.delete("/accounts/me@work.com").json() == {"ok": True}
+
+
+# ---------------------------------------------------------------- reminders + briefings
+
+from datetime import datetime, timezone as _tzmod, timedelta as _td
+
+MT = _tzmod(_td(hours=-7))
+
+
+def at(hh, mm, day=23):
+    return datetime(2026, 11, day, hh, mm, tzinfo=MT)
+
+
+@pytest.fixture
+def settings(core, monkeypatch):
+    vals = {"time_zone": ""}
+    monkeypatch.setattr(core, "_plugin_settings", lambda: vals)
+    monkeypatch.setattr(core, "_tz", lambda: MT)
+    return vals
+
+
+def test_lead_minutes_parsing(core, settings):
+    settings["reminder_minutes"] = "10, 60 ,x, 0, 10"
+    assert core.lead_minutes() == [60, 10]
+    settings["reminder_minutes"] = "nonsense"
+    assert core.lead_minutes() == [10]
+
+
+def test_reminder_fires_once_inside_the_window(core, google, settings):
+    connect(core, google, "me@work.com")
+    assert core.due_reminders("desktop", at(8, 49)) == []
+    first = core.due_reminders("desktop", at(8, 51))
+    assert [r["summary"] for r in first] == ["Standup"] and first[0]["minutes"] == 9
+    assert core.due_reminders("desktop", at(8, 52)) == []
+    assert core.due_reminders("desktop", at(9, 0)) == []  # started
+
+
+def test_desktop_and_chat_are_tracked_separately(core, google, settings):
+    connect(core, google, "me@work.com")
+    assert len(core.due_reminders("desktop", at(8, 55))) == 1
+    assert len(core.due_reminders("chat", at(8, 55))) == 1
+
+
+def test_two_leads_each_fire_but_catchup_sends_one(core, google, settings):
+    settings["reminder_minutes"] = "60,10"
+    connect(core, google, "me@work.com")
+    assert len(core.due_reminders("desktop", at(8, 1))) == 1
+    assert core.due_reminders("desktop", at(8, 30)) == []
+    assert len(core.due_reminders("desktop", at(8, 51))) == 1
+    # app was closed all morning: one reminder, not two
+    assert len(core.due_reminders("chat", at(8, 55))) == 1
+
+
+def test_reminders_disabled(core, google, settings):
+    settings["reminders_enabled"] = False
+    connect(core, google, "me@work.com")
+    assert core.due_reminders("desktop", at(8, 55)) == []
+
+
+def test_declined_events_skipped_by_setting(core, google, settings):
+    connect(core, google, "me@work.com")
+    google.events["me@work.com"][0]["attendees"] = [{"email": "me@work.com", "self": True, "responseStatus": "declined"}]
+    assert core.due_reminders("desktop", at(8, 55)) == []
+    settings["reminder_skip_declined"] = False
+    assert len(core.due_reminders("chat", at(8, 55))) == 1
+
+
+def test_all_day_events_skipped_by_setting(core, google, settings):
+    settings["reminder_minutes"] = "60"
+    connect(core, google, "me@work.com")
+    google.events["me@work.com"][0]["start"] = {"date": "2026-11-24"}
+    google.events["me@work.com"][0]["end"] = {"date": "2026-11-25"}
+    assert core.due_reminders("desktop", at(23, 30)) == []
+    settings["reminder_skip_all_day"] = False
+    assert [r["summary"] for r in core.due_reminders("desktop", at(23, 30))] == ["Standup"]
+
+
+def test_quiet_hours_swallow_reminders(core, google, settings):
+    connect(core, google, "me@work.com")
+    settings["reminder_quiet_hours"] = "22:00-09:00"
+    assert core.in_quiet_hours(at(23, 0)) and core.in_quiet_hours(at(8, 55)) and not core.in_quiet_hours(at(9, 0))
+    assert core.due_reminders("desktop", at(8, 55)) == []
+    settings["reminder_quiet_hours"] = ""
+    assert core.due_reminders("desktop", at(8, 56)) == []  # marked sent, not saved for later
+
+
+def test_reminder_text(core):
+    t = core.reminder_text([{"minutes": 5, "time": "9:00 AM", "summary": "Standup", "account_label": "Work",
+                             "meet_link": "https://meet/x", "location": ""}])
+    assert "In 5 min (9:00 AM): Standup · Work" in t and "Join: https://meet/x" in t
+    assert core.reminder_text([]) == ""
+
+
+def test_greeting_matching(core, settings):
+    for m in ["good morning", "Good Morning!", "gm", "GM jerry", "morning, what's up", "good morning\nalso..."]:
+        assert core.is_greeting(m), m
+    for m in ["gmail is down", "mornings are hard", "what about good morning", ""]:
+        assert not core.is_greeting(m), m
+    settings["briefing_phrases"] = "hey jerry"
+    assert core.is_greeting("Hey Jerry") and not core.is_greeting("good morning")
+
+
+def test_greeting_context_once_per_day(core, google, settings):
+    connect(core, google, "me@work.com")
+    first = core.greeting_context("good morning", at(7, 0))
+    assert first and "Standup" in first and "9:00 AM-9:15 AM" in first
+    assert core.greeting_context("good morning", at(7, 30)) is None
+    assert core.greeting_context("good morning", at(7, 0, day=24)) is not None
+    settings["briefing_once_per_day"] = False
+    assert core.greeting_context("gm", at(8, 0, day=24)) is not None
+
+
+def test_greeting_context_off_and_non_greeting(core, google, settings):
+    connect(core, google, "me@work.com")
+    assert core.greeting_context("fix my PR", at(7, 0)) is None
+    settings["briefing_greeting_enabled"] = False
+    assert core.greeting_context("good morning", at(7, 0)) is None
+
+
+def test_greeting_with_no_accounts_is_silent(core, settings):
+    assert core.greeting_context("good morning", at(7, 0)) is None
+
+
+def test_agenda_tomorrow_and_declined(core, google, settings):
+    settings["briefing_include_tomorrow"] = True
+    settings["briefing_once_per_day"] = False
+    connect(core, google, "me@work.com")
+    google.events["me@work.com"][0]["attendees"] = [{"email": "me@work.com", "self": True, "responseStatus": "declined"}]
+    text = core.greeting_context("gm", at(7, 0))
+    assert "Today" in text and "Tomorrow" in text and "Standup" not in text
+
+
+def test_pre_llm_call_hook(tools, core, google, settings):
+    connect(core, google, "me@work.com")
+    assert tools._on_pre_llm_call(user_message="hello") is None
+    out = tools._on_pre_llm_call(user_message="good morning", session_id="s")
+    assert out and "context" in out
+
+
+class FakeCron:
+    def __init__(self):
+        self.jobs = []
+
+    def list_jobs(self, include_disabled=False):
+        return list(self.jobs)
+
+    def create_job(self, prompt, schedule, **kw):
+        self.jobs.append({"id": str(len(self.jobs) + 1), "prompt": prompt,
+                          "schedule": {"expr": schedule if " " in schedule else None, "raw": schedule}, **kw})
+
+    def update_job(self, job_id, updates):
+        j = next(j for j in self.jobs if j["id"] == job_id)
+        if "schedule" in updates:
+            j["schedule"] = {"expr": updates.pop("schedule")}
+        j.update(updates)
+
+    def remove_job(self, job_id):
+        self.jobs = [j for j in self.jobs if j["id"] != job_id]
+        return True
+
+
+@pytest.fixture
+def cron(core, settings, monkeypatch, tmp_path):
+    import types
+    fc = FakeCron()
+    mod = types.ModuleType("cron")
+    mod.jobs = fc
+    monkeypatch.setitem(sys.modules, "cron", mod)
+    monkeypatch.setitem(sys.modules, "cron.jobs", fc)
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(core, "_ensure_secret_passthrough", lambda: None)
+    return fc
+
+
+def test_sync_defaults_create_nothing(core, cron):
+    assert core.sync_jobs() == {}
+    assert cron.jobs == []
+
+
+def test_sync_chat_reminders_job_is_script_only(core, cron, settings, tmp_path):
+    settings["reminder_chat_target"] = "slack"
+    assert core.sync_jobs() == {"reminders": "created"}
+    j = cron.jobs[0]
+    assert j["name"] == core.REMINDER_JOB and j["no_agent"] is True and j["deliver"] == "slack"
+    script = tmp_path / "home" / "scripts" / core.REMINDER_SCRIPT
+    assert "due_reminders('chat')" in script.read_text()
+    assert core.sync_jobs() == {"reminders": "ok"}
+    settings["reminder_chat_target"] = "telegram"
+    assert core.sync_jobs() == {"reminders": "updated"} and cron.jobs[0]["deliver"] == "telegram"
+    settings["reminder_chat_target"] = ""
+    assert core.sync_jobs() == {"reminders": "removed"} and cron.jobs == []
+
+
+def test_sync_reminders_off_removes_chat_job(core, cron, settings):
+    settings["reminder_chat_target"] = "slack"
+    core.sync_jobs()
+    settings["reminders_enabled"] = False
+    assert core.sync_jobs() == {"reminders": "removed"}
+
+
+def test_sync_briefing_schedule(core, cron, settings):
+    settings["briefing_schedule_enabled"] = True
+    assert core.sync_jobs() == {"briefing": "created"}
+    j = cron.jobs[0]
+    assert j["schedule"]["raw"] == "30 7 * * 1-5" and j["enabled_toolsets"] == ["google_calendars"]
+    assert core.sync_jobs() == {"briefing": "ok"}
+    settings["briefing_time"] = "06:05"
+    settings["briefing_days"] = "every day"
+    assert core.sync_jobs() == {"briefing": "updated"} and cron.jobs[0]["schedule"]["expr"] == "5 6 * * *"
+    settings["briefing_schedule_enabled"] = False
+    assert core.sync_jobs() == {"briefing": "removed"} and cron.jobs == []
+
+
+def test_sync_leaves_other_jobs_alone(core, cron, settings):
+    cron.jobs.append({"id": "x", "name": "Jerry nightly backup", "schedule": {"expr": "0 18 * * *"}})
+    settings["briefing_schedule_enabled"] = True
+    core.sync_jobs()
+    settings["briefing_schedule_enabled"] = False
+    core.sync_jobs()
+    assert [j["name"] for j in cron.jobs] == ["Jerry nightly backup"]
+
+
+def test_reminder_routes(core, google, settings, monkeypatch):
+    from fastapi.testclient import TestClient
+    from fastapi import FastAPI
+    import importlib.util as iu
+    connect(core, google, "me@work.com")
+    monkeypatch.setitem(sys.modules, "google_calendars_core", core)
+    spec = iu.spec_from_file_location("gcal_api_rem", ROOT / "dashboard" / "plugin_api.py")
+    m = iu.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    monkeypatch.setattr(core, "_now", lambda: at(8, 55))
+    app = FastAPI()
+    app.include_router(m.router)
+    c = TestClient(app)
+    assert c.get("/status").json()["reminders"] == {"enabled": True, "desktop": True, "minutes": [10]}
+    assert [r["summary"] for r in c.get("/reminders/due").json()["reminders"]] == ["Standup"]
+    assert c.get("/reminders/due").json()["reminders"] == []
+    settings["reminders_desktop"] = False
+    assert c.get("/reminders/due").json() == {"reminders": []}

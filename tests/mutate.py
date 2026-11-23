@@ -8,10 +8,33 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 NM = sys.argv[1]
-PY = [sys.executable, "-m", "pytest", "-q", "-x"]
+PY = [sys.executable, "-B", "-m", "pytest", "-q", "-x", "-p", "no:cacheprovider"]
 UI = ["node", "tests/ui_smoke.mjs", NM]
 
 MUTANTS = [
+    ("reminder sent every poll", "google_calendars_core.py",
+     "            if not fresh:\n                continue", "            pass", PY),
+    ("reminder before its lead time", "google_calendars_core.py",
+     "due = [L for L in leads if start - timedelta(minutes=L) <= now]", "due = list(leads)", PY),
+    ("desktop + chat share sent state", "google_calendars_core.py",
+     'fresh = [L for L in due if f"{consumer}|', 'fresh = [L for L in due if f"x|', PY),
+    ("declined events reminded", "google_calendars_core.py",
+     "(skip_declined and _declined(ev))", "False", PY),
+    ("quiet hours ignored", "google_calendars_core.py",
+     "            if quiet:\n                continue", "            pass", PY),
+    ("greeting matches inside words", "google_calendars_core.py",
+     'r"(?![a-z0-9])"', 'r""', PY),
+    ("greeting briefing every message", "google_calendars_core.py",
+     'if state.get("last") == today:\n                return None', 'pass', PY),
+    ("chat reminder job runs the AI", "google_calendars_core.py",
+     "script=script, no_agent=True,", "script=script, no_agent=False,", PY),
+    ("briefing job not updated on change", "google_calendars_core.py",
+     'cj.update_job(job["id"], {"schedule": schedule, "deliver": deliver})', "pass", PY),
+    ("UI: reminders only while pane open", "desktop/plugin.js",
+     "    ctx.setInterval(pollReminders, REMINDER_POLL_MS)\n", "", UI),
+    ("UI: reminder toast missing", "desktop/plugin.js", "  host.notify({\n    kind: 'info',\n    title: '📅 ' + title,", "  void ({\n    kind: 'info',\n    title: '📅 ' + title,", UI),
+    ("hook not registered", "__init__.py",
+     'ctx.register_hook("pre_llm_call", _on_pre_llm_call)', "pass", PY),
     ("sign-in state can be reused", "google_calendars_core.py",
      'pending = data["pending"].pop(state or "", None) if state else None',
      'pending = data["pending"].get(state or "", None) if state else None', PY),
@@ -62,5 +85,7 @@ for name, rel, old, new, cmd in MUTANTS:
         print(f"{'KILLED  ' if ok else 'SURVIVED'} {name}")
     finally:
         shutil.move(backup, p)
+for cache in ROOT.rglob("__pycache__"):  # never leave bytecode compiled from a mutant
+    shutil.rmtree(cache, ignore_errors=True)
 print(f"{killed}/{len(MUTANTS)} killed")
 sys.exit(0 if killed == len(MUTANTS) else 1)

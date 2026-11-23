@@ -166,7 +166,17 @@ def _available() -> bool:
         return False
 
 
+def _on_pre_llm_call(session_id=None, user_message="", **_kw):
+    """Greeting briefing: when the message starts with a configured phrase, hand the model today's agenda."""
+    try:
+        ctx_text = core.greeting_context(user_message or "")
+    except Exception:
+        return None
+    return {"context": ctx_text} if ctx_text else None
+
+
 def register(ctx):
+    ctx.register_hook("pre_llm_call", _on_pre_llm_call)
     for schema, fn in TOOLS:
         ctx.register_tool(name=schema["name"], toolset="google_calendars", schema=schema, handler=_wrap(fn),
                           check_fn=_available, description=schema["description"], emoji="📅")

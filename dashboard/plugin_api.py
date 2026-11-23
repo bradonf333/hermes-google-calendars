@@ -30,7 +30,31 @@ def _run(fn, *args, **kwargs):
 @router.get("/status")
 def status():
     return {"configured": core.is_configured(), "accounts": _run(core.list_accounts),
-            "redirect_uri": core._plugin_settings().get("redirect_uri") or core.DEFAULT_REDIRECT}
+            "redirect_uri": core._plugin_settings().get("redirect_uri") or core.DEFAULT_REDIRECT,
+            "reminders": {"enabled": core._as_bool(core.setting("reminders_enabled")),
+                          "desktop": core._as_bool(core.setting("reminders_desktop")),
+                          "minutes": core.lead_minutes()}}
+
+
+# ---- reminders + scheduled jobs ------------------------------------------
+
+@router.get("/reminders/due")
+def reminders_due():
+    """Reminders due now for the desktop app (each is returned once)."""
+    if not core._as_bool(core.setting("reminders_desktop")):
+        return {"reminders": []}
+    return {"reminders": _run(core.due_reminders, "desktop")}
+
+
+@router.post("/sync")
+def sync():
+    """Bring the Hermes scheduled jobs (chat reminders, daily briefing) in line with the settings."""
+    try:
+        return {"jobs": core.sync_jobs()}
+    except core.CalendarError as e:
+        raise HTTPException(e.status, str(e))
+    except Exception as e:  # cron unavailable in this process
+        raise HTTPException(500, f"Could not update scheduled jobs: {e}")
 
 
 # ---- accounts ------------------------------------------------------------
