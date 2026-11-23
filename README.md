@@ -71,8 +71,13 @@ limit which accounts you can connect.** Every account signs in on its own.
    screen** (in newer consoles, **Google Auth Platform → Branding /
    Audience**):
    - User type **External**.
-   - App name, your email for support and developer contact. Nothing else
-     is required.
+   - App name, your email for support and developer contact.
+   - **Branding → App domain:** Google requires a homepage and a privacy
+     policy link before you can publish. Use your fork or this repo:
+     homepage `https://github.com/bradonf333/hermes-google-calendars`, privacy
+     policy `https://github.com/bradonf333/hermes-google-calendars/blob/main/PRIVACY.md`
+     (see [PRIVACY.md](PRIVACY.md)). If Google asks for authorized domains,
+     add `github.com`.
    - **Data access / Scopes:** you can skip this. The plugin asks for the
      calendar scope itself.
    - **Audience → Publish app**, so the status is **In production**. This

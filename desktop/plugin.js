@@ -162,7 +162,7 @@ function SetupScreen({ redirect, onRecheck }) {
   const steps = [
     ['Create a Google Cloud project', 'console.cloud.google.com → New project (any name).'],
     ['Turn on the Calendar API', 'APIs & Services → Library → Google Calendar API → Enable.'],
-    ['Set up the consent screen', 'OAuth consent screen → External → add your own email as a test user, then Publish app ("In production") so sign-ins don\u2019t expire after 7 days.'],
+    ['Set up the consent screen', 'OAuth consent screen → External. On Branding, add a homepage + privacy policy link (the README has ready-made ones), then Audience → Publish app ("In production") so sign-ins don\u2019t expire after 7 days.'],
     ['Create the login client', 'Credentials → Create credentials → OAuth client ID → Desktop app.'],
     ['Paste it into Hermes', 'Settings → Plugins → Google Calendars: Client ID + Client secret.']
   ]
