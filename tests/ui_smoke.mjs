@@ -50,7 +50,10 @@ const iso = (h, m = 0) => new Date(today.getFullYear(), today.getMonth(), today.
 const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 const tomorrow = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1)
 const events = [ev('a', 'Standup', iso(9), iso(9, 15), { recurring: true }), ev('b', 'Overlap', iso(9), iso(10)),
-  ev('c', 'Holiday', ymd(today), ymd(tomorrow), { writable: false, calendar_name: 'Holidays' })]
+  ev('c', 'Holiday', ymd(today), ymd(tomorrow), { writable: false, calendar_name: 'Holidays' }),
+  ev('d1', 'Off', ymd(today), ymd(tomorrow), { calendar_name: 'Work' }),
+  ev('d2', 'Off', ymd(tomorrow), ymd(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 2)), { account_id: 'me@other.com', account_label: 'Other' }),
+  ev('c2', 'Holiday', ymd(today), ymd(tomorrow), { writable: false, calendar_name: 'Holidays', account_id: 'me@other.com', account_label: 'Other', html_link: 'https://cal/other' })]
 const storage = new Map()
 const osNotes = []
 const due = []
@@ -156,8 +159,12 @@ check(text().includes('repeats') && byTitle('Edit') && byTitle('Delete'), 'detai
 await click(byTitle('Delete'))
 check(calls.some(c => c[0] === 'DELETE' && c[1].startsWith('/events/a?') && c[1].includes('calendar_id=me%40work.com')), 'delete calls the API with account+calendar')
 
-await click([...document.querySelectorAll('div')].find(d => d.getAttribute('title') === 'Holiday · Holidays'))
+const holChips = () => [...document.querySelectorAll('div')].filter(d => (d.getAttribute('title') || '').startsWith('Holiday · '))
+check([...document.querySelectorAll('div')].filter(d => (d.getAttribute('title') || '').startsWith('Off · ')).length === 2, 'same title on different days stays separate')
+check(holChips().length === 1 && holChips()[0].querySelector('[data-copies="2"]'), 'same title + time on two accounts -> one chip marked x2')
+await click(holChips()[0])
 check(!byTitle('Edit') && text().includes('Read-only calendar'), 'read-only event has no edit/delete')
+check(text().includes('Holidays · Work') && text().includes('Holidays · Other'), 'merged event lists every calendar it is on')
 await click(byTitle('Close'))
 
 await click(byText('button', 'Week'))
@@ -187,6 +194,11 @@ const allDay = calls.filter(c => c[0] === 'POST' && c[1] === '/events').pop()
 check(allDay[2].all_day === true && allDay[2].end > allDay[2].start && allDay[2].start.length === 10, 'all-day event sends an exclusive end date')
 
 await click(byTitle('Show / hide calendars'))
+const mergeBox = [...document.querySelectorAll('label')].find(l => l.textContent.includes('Merge duplicate')).querySelector('input')
+await click(mergeBox)
+check(holChips().length === 2 && storage.get('mergeDuplicates') === false, 'merge toggle off -> copies shown separately (remembered)')
+await click(mergeBox)
+check(holChips().length === 1, 'merge toggle back on')
 const hol = [...document.querySelectorAll('label')].find(l => l.textContent.includes('Holidays'))
 await click(hol.querySelector('input'))
 check(calls.some(c => c[0] === 'PATCH' && c[2]?.hidden_calendars?.includes('holidays')), 'unticking a calendar hides it (saved on the account)')

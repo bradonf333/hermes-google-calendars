@@ -70,6 +70,27 @@ function eventSpan(e) {
   return { start, end }
 }
 
+/** Collapse copies of the same event (same title, same start and end) into one,
+ *  e.g. a holiday calendar subscribed on two accounts, or a meeting you're invited
+ *  to on both. The kept copy is one you can edit, if any; the rest ride along in
+ *  `copies` so the details view can list every calendar it's on. */
+function mergeDuplicates(events) {
+  const groups = new Map()
+  for (const e of events) {
+    const key = `${(e.summary || '').trim().toLowerCase()}|${e.start}|${e.end}`
+    const g = groups.get(key)
+    if (g) g.push(e)
+    else groups.set(key, [e])
+  }
+  return [...groups.values()].map(g => {
+    if (g.length === 1) return g[0]
+    const main = g.find(x => x.writable) || g[0]
+    return { ...main, copies: g.filter(x => x !== main) }
+  })
+}
+
+const calLabel = x => (x.calendar_name === x.account_label ? x.calendar_name : `${x.calendar_name} · ${x.account_label}`)
+
 function rangeFor(view, anchor, weekStart) {
   if (view === 'day') return { from: startOfDay(anchor), to: addDays(startOfDay(anchor), 1), days: [startOfDay(anchor)] }
   if (view === 'week') {
@@ -345,10 +366,15 @@ function AccountsScreen({ accounts, onChanged, onBack }) {
 
 // ------------------------------------------------------------------ calendar list (show/hide)
 
-function CalendarFilter({ accounts, onToggle }) {
-  return jsx('div', {
+function CalendarFilter({ accounts, onToggle, merge, onMerge }) {
+  return jsxs('div', {
     style: { display: 'flex', flexDirection: 'column', gap: 6, padding: '6px 10px 10px', borderBottom: S.border, maxHeight: 220, overflowY: 'auto' },
-    children: accounts.map(a =>
+    children: [
+      jsxs('label', {
+        style: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, cursor: 'pointer', paddingBottom: 4, borderBottom: S.border },
+        children: [jsx('input', { type: 'checkbox', checked: merge, onChange: () => onMerge(!merge) }), 'Merge duplicate events (same title and time)']
+      }),
+      ...accounts.map(a =>
       jsxs('div', {
         style: { display: 'flex', flexDirection: 'column', gap: 2 },
         children: [
@@ -370,6 +396,7 @@ function CalendarFilter({ accounts, onToggle }) {
         ]
       }, a.id)
     )
+    ]
   })
 }
 
@@ -379,7 +406,7 @@ function EventChip({ e, onOpen, compact }) {
   const { start } = eventSpan(e)
   return jsxs('div', {
     onClick: () => onOpen(e),
-    title: `${e.summary} · ${e.calendar_name}`,
+    title: [e, ...(e.copies || [])].map(x => `${e.summary} · ${calLabel(x)}`).join('\n'),
     style: {
       display: 'flex',
       alignItems: 'center',
@@ -394,7 +421,8 @@ function EventChip({ e, onOpen, compact }) {
     children: [
       !compact && jsx('span', { style: { ...S.muted, width: 58, flexShrink: 0, fontSize: 11 }, children: e.all_day ? 'All day' : fmtTime(start) }),
       jsx('span', { style: { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, children: e.summary }),
-      !compact && jsx('span', { style: { ...S.faint, fontSize: 10, maxWidth: 90, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, children: e.account_label })
+      !compact && jsx('span', { style: { ...S.faint, fontSize: 10, maxWidth: 90, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, children: e.account_label }),
+      e.copies?.length > 0 && jsx('span', { 'data-copies': e.copies.length + 1, style: { ...S.faint, fontSize: 10, flexShrink: 0 }, children: `×${e.copies.length + 1}` })
     ]
   })
 }
@@ -620,7 +648,19 @@ function EventDetail({ e, onClose, onEdit, onDeleted }) {
           ]
         }),
         row('clock', jsxs('span', { children: [when, e.recurring && jsx('span', { style: S.faint, children: ' · repeats' })] })),
-        row('calendar', e.calendar_name === e.account_label ? e.calendar_name : `${e.calendar_name} · ${e.account_label}`),
+        row('calendar', e.copies?.length
+          ? jsxs('div', {
+              style: { display: 'flex', flexDirection: 'column', gap: 2 },
+              children: [
+                ...[e, ...e.copies].map(x => jsxs('div', {
+                  style: { display: 'flex', alignItems: 'center', gap: 6 },
+                  children: [jsx(Dot, { color: x.color, size: 7 }), calLabel(x),
+                    x.html_link && x !== e && jsx('a', { href: '#', onClick: ev => { ev.preventDefault(); openUrl(x.html_link) }, style: { ...S.faint, fontSize: 11 }, children: 'open' })]
+                }, `${x.account_id}|${x.calendar_id}|${x.id}`)),
+                e.writable && jsx('div', { style: { ...S.faint, fontSize: 11 }, children: `Edit and delete change the ${e.account_label} copy only.` })
+              ]
+            })
+          : calLabel(e)),
         row('location', e.location),
         e.meet_link && row('device-camera-video', jsx('a', { href: '#', onClick: ev => { ev.preventDefault(); openUrl(e.meet_link) }, style: { color: 'var(--ui-accent)' }, children: 'Join video call' })),
         e.attendees.length > 0 && row('organization', jsx('div', {
@@ -776,6 +816,9 @@ function CalendarPane() {
   const [showFilter, setShowFilter] = useState(false)
   const [open, setOpen] = useState(null)
   const [editing, setEditing] = useState(null)
+  const [merge, setMerge] = useState(() => api.storage.get('mergeDuplicates', true))
+  const changeMerge = v => { setMerge(v); api.storage.set('mergeDuplicates', v) }
+  const shown = useMemo(() => (merge ? mergeDuplicates(events) : events), [events, merge])
   const weekStart = api.storage.get('weekStart', 0)
   const range = useMemo(() => rangeFor(view, anchor, weekStart), [view, anchor, weekStart])
 
@@ -885,7 +928,7 @@ function CalendarPane() {
         style: { display: 'flex', justifyContent: 'center', padding: '5px 8px' },
         children: jsx(Seg, { value: view, onChange: changeView, options: [['day', 'Day'], ['week', 'Week'], ['agenda', 'Agenda']] })
       }),
-      showFilter && jsx(CalendarFilter, { accounts: calendars, onToggle: toggleCalendar }),
+      showFilter && jsx(CalendarFilter, { accounts: calendars, onToggle: toggleCalendar, merge, onMerge: changeMerge }),
       errors.length > 0 && jsx('div', {
         style: { padding: '4px 10px', fontSize: 11, color: 'var(--ui-red)', borderBottom: S.border },
         children: errors.map((e, i) => jsx('div', { children: `${e.account}${e.calendar ? ` · ${e.calendar}` : ''}: ${e.error}` }, i))
@@ -893,8 +936,8 @@ function CalendarPane() {
       jsx('div', {
         style: { flex: 1, minHeight: 0 },
         children: view === 'agenda'
-          ? jsx(AgendaView, { days: range.days, events, onOpen: setOpen, onNew })
-          : jsx(TimeGrid, { days: range.days, events, onOpen: setOpen, onNew })
+          ? jsx(AgendaView, { days: range.days, events: shown, onOpen: setOpen, onNew })
+          : jsx(TimeGrid, { days: range.days, events: shown, onOpen: setOpen, onNew })
       }),
       open && jsx(EventDetail, { e: open, onClose: () => setOpen(null), onEdit: e => { setOpen(null); setEditing(e) }, onDeleted: () => { setOpen(null); loadEvents() } }),
       editing && jsx(EventEditor, { draft: editing, accounts: calendars, onClose: () => setEditing(null), onSaved: () => { setEditing(null); loadEvents() } })

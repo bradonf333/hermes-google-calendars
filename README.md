@@ -16,6 +16,10 @@ plus calendar tools for the agent.
   Edit or delete it, or create one on any calendar you can write to.
   Double-click an empty slot to start a new event there.
 - **Show or hide calendars** per account (the choice is remembered).
+- **Duplicates merged.** The same event on several calendars (same title, same
+  start and end, like a holiday calendar on two accounts or a meeting you're
+  invited to on both) shows once, marked ×2, and its details list every
+  calendar it's on. Toggle it in the show/hide calendars menu.
 - **Reminders** before events, as a desktop notification and an in-app toast
   (Mac, Windows, Linux), and optionally in Slack, Telegram or any chat Hermes
   already delivers to.
