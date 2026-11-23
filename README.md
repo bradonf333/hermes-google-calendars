@@ -1,5 +1,7 @@
 # Google Calendars for Hermes
 
+![Every calendar, one place](assets/banner.png)
+
 Every Google Calendar from **every Google account** you use, merged into one
 docked panel in [Hermes](https://github.com/NousResearch/hermes-agent) Desktop,
 plus calendar tools for the agent.
