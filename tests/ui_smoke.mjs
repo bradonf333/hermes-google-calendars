@@ -1,0 +1,166 @@
+// UI smoke test: renders desktop/plugin.js in jsdom with React (the app's own
+// version), a stub @hermes/plugin-sdk and a fake backend, then drives the panel.
+//   node tests/ui_smoke.mjs <path-to-node_modules-with-react-react-dom-jsdom>
+import { readFileSync, writeFileSync, mkdtempSync, mkdirSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, dirname, resolve } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import { createRequire } from 'node:module'
+
+const here = dirname(fileURLToPath(import.meta.url))
+const nm = resolve(process.argv[2])
+const req = createRequire(join(nm, '..', 'x.js'))
+const { JSDOM } = req('jsdom')
+const dom = new JSDOM('<!doctype html><div id="root" style="height:800px"></div>', { pretendToBeVisual: true })
+Object.assign(globalThis, { window: dom.window, document: dom.window.document,
+  HTMLElement: dom.window.HTMLElement, Node: dom.window.Node, getComputedStyle: dom.window.getComputedStyle,
+  IS_REACT_ACT_ENVIRONMENT: true })
+const React = req('react')
+const { createRoot } = req('react-dom/client')
+const { act } = React
+
+// ---- stub SDK + rewritten plugin
+const notes = []
+globalThis.__sdk = {
+  Button: ({ children, onClick, disabled, title }) => React.createElement('button', { onClick, disabled, title }, children),
+  Input: props => React.createElement('input', props),
+  Codicon: ({ name }) => React.createElement('i', { 'data-icon': name }),
+  PALETTE_AREA: 'palette',
+  host: { navigate: p => notes.push(['nav', p]), notify: n => notes.push(['notify', n.kind, n.message]), onEvent: () => () => {} }
+}
+const tmp = mkdtempSync(join(tmpdir(), 'gcal-ui-'))
+const src = readFileSync(join(here, '..', 'desktop', 'plugin.js'), 'utf8')
+  .replace(/import \{([^}]+)\} from '@hermes\/plugin-sdk'/, 'const {$1} = globalThis.__sdk')
+  .replace(/from 'react\/jsx-runtime'/, `from '${pathToFileURL(req.resolve('react/jsx-runtime')).href}'`)
+  .replace(/from 'react'/, `from '${pathToFileURL(req.resolve('react')).href}'`)
+writeFileSync(join(tmp, 'plugin.mjs'), src)
+const plugin = (await import(pathToFileURL(join(tmp, 'plugin.mjs')).href)).default
+
+// ---- fake backend
+const state = { configured: false, accounts: [], hidden: [] }
+const calls = []
+const ev = (id, summary, start, end, extra = {}) => ({ id, summary, start, end, all_day: start.length === 10, account_id: 'me@work.com',
+  account_label: 'Work', calendar_id: 'me@work.com', calendar_name: 'Work', color: '#4285f4', writable: true, recurring: false,
+  attendees: [], description: '', location: '', ...extra })
+const today = new Date()
+const iso = (h, m = 0) => new Date(today.getFullYear(), today.getMonth(), today.getDate(), h, m).toISOString()
+const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+const tomorrow = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1)
+const events = [ev('a', 'Standup', iso(9), iso(9, 15), { recurring: true }), ev('b', 'Overlap', iso(9), iso(10)),
+  ev('c', 'Holiday', ymd(today), ymd(tomorrow), { writable: false, calendar_name: 'Holidays' })]
+const storage = new Map()
+const ctx = {
+  storage: { get: (k, d) => (storage.has(k) ? storage.get(k) : d), set: (k, v) => storage.set(k, v) },
+  os: { openExternal: async url => (calls.push(['open', url]), true), writeClipboard: async () => true },
+  registerMany: cs => (ctx.contribs = cs),
+  rest: async (path, opts = {}) => {
+    const method = opts.method || 'GET'
+    calls.push([method, path, opts.body])
+    const p = path.split('?')[0]
+    if (p === '/status') return { configured: state.configured, accounts: state.accounts, redirect_uri: 'http://127.0.0.1:8765/' }
+    if (p === '/auth/start') return { auth_url: 'https://accounts.google.com/o/oauth2/v2/auth?x', state: 'st', redirect_uri: 'http://127.0.0.1:8765/' }
+    if (p === '/auth/finish') {
+      state.accounts = [{ id: 'me@work.com', email: 'me@work.com', label: 'Work', color: '#4285f4', hidden_calendars: [] }]
+      return state.accounts[0]
+    }
+    if (p === '/calendars') return { accounts: state.accounts.map(a => ({ ...a, calendars: [
+      { id: 'me@work.com', name: 'Work', color: '#4285f4', primary: true, writable: true, visible: true },
+      { id: 'holidays', name: 'Holidays', color: '#0b8043', primary: false, writable: false, visible: !state.hidden.includes('holidays') }] })) }
+    if (p === '/events' && method === 'GET') return { events, errors: [] }
+    if (p === '/events' && method === 'POST') return ev('new', opts.body.summary, opts.body.start, opts.body.end)
+    if (p.startsWith('/events/') && method === 'DELETE') return { ok: true }
+    if (p.startsWith('/accounts/') && method === 'PATCH') { state.hidden = opts.body.hidden_calendars || state.hidden; return {} }
+    throw new Error(`unexpected ${method} ${path}`)
+  }
+}
+plugin.register(ctx)
+const pane = ctx.contribs.find(c => c.area === 'panes')
+
+// ---- helpers
+let failures = 0
+const check = (cond, msg) => { console.log(`${cond ? 'PASS' : 'FAIL'} ${msg}`); if (!cond) failures++ }
+const text = () => document.body.textContent
+const flush = async () => { for (let i = 0; i < 6; i++) await act(async () => { await new Promise(r => setTimeout(r, 5)) }) }
+const byText = (sel, t) => [...document.querySelectorAll(sel)].find(el => el.textContent.trim() === t)
+const byTitle = t => document.querySelector(`[title="${t}"]`)
+const click = async el => { await act(async () => el.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))); await flush() }
+const type = async (el, v) => {
+  const proto = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : el.tagName === 'SELECT' ? window.HTMLSelectElement.prototype : window.HTMLInputElement.prototype
+  Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, v)
+  await act(async () => el.dispatchEvent(new window.Event(el.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true })))
+}
+window.confirm = () => true
+const errors = []
+const origError = console.error
+console.error = (...a) => { errors.push(a.join(' ')); }
+
+// ---- run
+check(pane && pane.data.placement === 'right', 'registers a right-side pane')
+const root = createRoot(document.getElementById('root'))
+await act(async () => root.render(pane.render()))
+await flush()
+check(text().includes('Connect your Google Calendars'), 'unconfigured -> setup screen')
+await click(byText('button', 'Open plugin settings'))
+check(notes.some(n => n[0] === 'nav' && n[1].includes('plugin=google-calendars')), 'setup button opens the plugin settings page')
+
+state.configured = true
+await click(byText('button', 'Check again'))
+check(text().includes('Add a Google account'), 'configured, no accounts -> add account flow')
+await click(byText('button', 'Open Google sign-in'))
+check(calls.some(c => c[0] === 'open' && c[1].startsWith('https://accounts.google.com')), 'opens Google sign-in in the browser')
+await type(document.querySelector('textarea'), 'http://127.0.0.1:8765/?state=st&code=abc')
+await click(byText('button', 'Connect'))
+const fin = calls.find(c => c[1] === '/auth/finish')
+check(fin && fin[2].pasted.includes('code=abc') && fin[2].state === 'st', 'sends the pasted URL + state')
+check(!text().includes('Add a Google account') && byTitle('Google accounts'), 'first account connected -> straight to the calendar')
+check(text().includes('Standup') && text().includes('Holiday'), 'agenda shows merged events')
+await click(byTitle('Google accounts'))
+check(text().includes('me@work.com') && text().includes('Work') && byTitle('Back to calendar'), 'accounts screen lists the account with a way back')
+await click(byTitle('Back to calendar'))
+check(text().includes('Today'), 'agenda marks today')
+
+await click([...document.querySelectorAll('div')].find(d => d.getAttribute('title') === 'Standup · Work'))
+check(text().includes('repeats') && byTitle('Edit') && byTitle('Delete'), 'detail shows recurring + edit/delete')
+await click(byTitle('Delete'))
+check(calls.some(c => c[0] === 'DELETE' && c[1].startsWith('/events/a?') && c[1].includes('calendar_id=me%40work.com')), 'delete calls the API with account+calendar')
+
+await click([...document.querySelectorAll('div')].find(d => d.getAttribute('title') === 'Holiday · Holidays'))
+check(!byTitle('Edit') && text().includes('Read-only calendar'), 'read-only event has no edit/delete')
+await click(byTitle('Close'))
+
+await click(byText('button', 'Week'))
+check(storage.get('view') === 'week', 'view choice persisted')
+const blocks = [...document.querySelectorAll('div')].filter(d => ['Standup · Work', 'Overlap · Work'].includes(d.getAttribute('title')))
+check(blocks.length === 2 && blocks[0].style.width !== '' && blocks[0].style.width === blocks[1].style.width && blocks[0].style.left !== blocks[1].style.left,
+  'overlapping events sit side by side in the week grid')
+await click(byText('button', 'Day'))
+check(text().includes(new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })), 'day view shows today')
+
+await click(byTitle('New event'))
+check(text().includes('New event'), 'new event editor opens')
+const sel = document.querySelector('select')
+check(sel && [...sel.options].every(o => !o.value.includes('holidays')), 'read-only calendars are not offered for new events')
+await type(document.querySelector('input[placeholder="Title"]'), 'Lunch')
+await type(document.querySelector('input[type="time"]'), '12:00')
+await type(document.querySelectorAll('input[type="time"]')[1], '13:00')
+await click(byText('button', 'Save'))
+const post = calls.find(c => c[0] === 'POST' && c[1] === '/events')
+check(post && post[2].summary === 'Lunch' && /T12:00:00[+-]\d\d:\d\d$/.test(post[2].start) && /T13:00:00[+-]\d\d:\d\d$/.test(post[2].end) && post[2].calendar_id === 'me@work.com',
+  `create sends local times with offset (${post && post[2].start})`)
+
+await click(byTitle('New event'))
+await click(document.querySelector('input[type="checkbox"]'))
+await click(byText('button', 'Save'))
+const allDay = calls.filter(c => c[0] === 'POST' && c[1] === '/events').pop()
+check(allDay[2].all_day === true && allDay[2].end > allDay[2].start && allDay[2].start.length === 10, 'all-day event sends an exclusive end date')
+
+await click(byTitle('Show / hide calendars'))
+const hol = [...document.querySelectorAll('label')].find(l => l.textContent.includes('Holidays'))
+await click(hol.querySelector('input'))
+check(calls.some(c => c[0] === 'PATCH' && c[2]?.hidden_calendars?.includes('holidays')), 'unticking a calendar hides it (saved on the account)')
+
+check(errors.filter(e => !/act\(/.test(e)).length === 0, `no React errors (${errors.slice(0, 2).join(' | ')})`)
+console.error = origError
+await act(async () => root.unmount())
+console.log(failures ? `${failures} FAILED` : 'ALL PASS')
+process.exit(failures ? 1 : 0)

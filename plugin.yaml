@@ -1,0 +1,42 @@
+name: google-calendars
+label: Google Calendars
+version: 0.1.0
+author: Bradon Fredrickson
+homepage: https://github.com/bradonf333/hermes-google-calendars
+description: >
+  Every Google Calendar from every Google account, merged into one docked
+  panel in Hermes Desktop: day, week and agenda views, create / edit / delete
+  events, plus agent tools ("what's on my calendar tomorrow?", "book 30 minutes
+  with Sam on Tuesday"). Bring your own Google OAuth client; add as many
+  accounts as you like.
+config_schema:
+  client_id:
+    type: str
+    default: ""
+    required: true
+    label: OAuth Client ID
+    description: >
+      From your own Google Cloud project: APIs & Services > Credentials >
+      Create credentials > OAuth client ID > Desktop app. See the README.
+  client_secret:
+    type: secret
+    env: GOOGLE_CALENDARS_CLIENT_SECRET
+    required: true
+    label: OAuth Client secret
+    description: The secret shown next to the Client ID. Stored in .env, never in config.yaml.
+  redirect_uri:
+    type: str
+    default: "http://127.0.0.1:8765/"
+    label: Redirect address
+    description: >
+      Where Google sends the browser after sign-in. The page won't load; you
+      copy its address back into the panel. Leave as is unless port 8765 is
+      taken on your machine.
+provides_tools:
+  - google_calendar_calendars
+  - google_calendar_events
+  - google_calendar_create_event
+  - google_calendar_update_event
+  - google_calendar_delete_event
+  - google_calendar_free_busy
+provides_hooks: []

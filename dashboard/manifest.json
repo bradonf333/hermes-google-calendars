@@ -1,0 +1,7 @@
+{
+  "name": "google-calendars",
+  "label": "Google Calendars",
+  "description": "Every Google Calendar from every account in one docked panel.",
+  "version": "0.1.0",
+  "api": "plugin_api.py"
+}
