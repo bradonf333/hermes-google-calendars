@@ -11,7 +11,7 @@
  * Tailwind build.
  */
 
-import { Button, Codicon, Input, PALETTE_AREA, host } from '@hermes/plugin-sdk'
+import { Button, Codicon, Input, PALETTE_AREA, Textarea, host } from '@hermes/plugin-sdk'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { jsx, jsxs } from 'react/jsx-runtime'
 
@@ -102,8 +102,9 @@ const S = {
   },
   input: {
     width: '100%',
-    background: 'var(--ui-bg-input)',
-    color: 'var(--ui-text-primary)',
+    background: 'transparent',
+    color: 'inherit',
+    colorScheme: 'dark light',
     border: '1px solid var(--ui-stroke-secondary)',
     borderRadius: 6,
     padding: '4px 8px',
@@ -237,12 +238,13 @@ function AddAccount({ onDone, onCancel }) {
         ]
       }),
       started && jsx('div', { style: S.muted, children: `2. The browser ends on a page that won\u2019t load (${started.redirect_uri}...). Copy that whole address and paste it here:` }),
-      started && jsx('textarea', {
+      started && jsx(Textarea, {
         rows: 3,
         value: pasted,
         placeholder: 'http://127.0.0.1:8765/?state=...&code=...',
         onChange: e => setPasted(e.target.value),
-        style: { ...S.input, fontFamily: 'monospace', resize: 'vertical' }
+        className: 'font-mono text-xs',
+        style: { resize: 'vertical', wordBreak: 'break-all' }
       }),
       jsxs('div', {
         style: { display: 'flex', gap: 6, justifyContent: 'flex-end' },
@@ -721,14 +723,14 @@ function EventEditor({ draft, accounts, onClose, onSaved }) {
       style: { display: 'flex', flexDirection: 'column', gap: 9, fontSize: 12 },
       children: [
         jsx('div', { style: { fontSize: 14, fontWeight: 600 }, children: isNew ? 'New event' : draft.recurring ? 'Edit this occurrence' : 'Edit event' }),
-        jsx('input', { autoFocus: true, placeholder: 'Title', value: f.summary, onChange: e => set('summary', e.target.value), style: { ...S.input, fontSize: 13 } }),
+        jsx(Input, { autoFocus: true, placeholder: 'Title', value: f.summary, onChange: e => set('summary', e.target.value) }),
         jsx(Field, {
           label: isNew ? 'Calendar' : 'Calendar (same account)',
           children: jsx('select', {
             value: f.key,
             onChange: e => set('key', e.target.value),
             style: S.input,
-            children: calOptions.map(({ a, c }) => jsx('option', { value: `${a.id}|${c.id}`, children: `${a.label} · ${c.name}` }, `${a.id}|${c.id}`))
+            children: calOptions.map(({ a, c }) => jsx('option', { style: { color: 'initial' }, value: `${a.id}|${c.id}`, children: `${a.label} · ${c.name}` }, `${a.id}|${c.id}`))
           })
         }),
         jsxs('label', { style: { display: 'flex', alignItems: 'center', gap: 6 }, children: [jsx('input', { type: 'checkbox', checked: f.allDay, onChange: e => set('allDay', e.target.checked) }), 'All day'] }),
@@ -745,8 +747,8 @@ function EventEditor({ draft, accounts, onClose, onSaved }) {
                 jsx(Field, { label: 'End', children: jsx('input', { type: 'time', value: f.endTime, onChange: e => set('endTime', e.target.value), style: S.input }) }, 'e')
               ]
         }),
-        jsx('input', { placeholder: 'Location', value: f.location, onChange: e => set('location', e.target.value), style: S.input }),
-        jsx('textarea', { placeholder: 'Description', rows: 3, value: f.description, onChange: e => set('description', e.target.value), style: { ...S.input, resize: 'vertical' } }),
+        jsx(Input, { placeholder: 'Location', value: f.location, onChange: e => set('location', e.target.value) }),
+        jsx(Textarea, { placeholder: 'Description', rows: 3, value: f.description, onChange: e => set('description', e.target.value), style: { resize: 'vertical' } }),
         jsxs('div', {
           style: { display: 'flex', justifyContent: 'flex-end', gap: 6 },
           children: [

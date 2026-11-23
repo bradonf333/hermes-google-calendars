@@ -24,6 +24,7 @@ const notes = []
 globalThis.__sdk = {
   Button: ({ children, onClick, disabled, title }) => React.createElement('button', { onClick, disabled, title }, children),
   Input: props => React.createElement('input', props),
+  Textarea: props => React.createElement('textarea', props),
   Codicon: ({ name }) => React.createElement('i', { 'data-icon': name }),
   PALETTE_AREA: 'palette',
   host: { navigate: p => notes.push(['nav', p]), notify: n => notes.push(['notify', n.kind, n.message]), onEvent: () => () => {} }
