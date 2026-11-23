@@ -42,6 +42,21 @@ Then:
 The **Calendar** pane appears on the right. Until you finish the Google
 setup below it shows the setup steps.
 
+### Desktop on a different computer than the gateway
+
+If Hermes Desktop runs on one machine (say a Mac) and the gateway on another
+(a server, or WSL on a Windows PC), the panel isn't copied across for you:
+
+1. Install the plugin on the **gateway** machine as above (that's the agent
+   tools and the panel's backend).
+2. On the **Desktop** machine: **Capabilities → Plugins → Install from Git** →
+   `bradonf333/hermes-google-calendars`, with only the **Desktop** target
+   checked. Then switch **Google Calendars** on.
+
+Sign-in still works in this setup: you open Google sign-in on the Desktop
+machine and paste the final address back, so nothing has to reach the
+gateway machine's `127.0.0.1`.
+
 ## Google setup (one time, about 5 minutes)
 
 Do this with any Google account; a personal Gmail is a good choice because it
