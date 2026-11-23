@@ -19,6 +19,15 @@ const ID = 'google-calendars'
 const HOUR_PX = 44
 const REFRESH_MS = 5 * 60 * 1000
 const PAGE = '/calendar'
+// Keep in step with plugin.yaml `version` and the top CHANGELOG entry (a test checks).
+const VERSION = '0.3.0'
+const CHANGELOG_URL = 'https://github.com/bradonf333/hermes-google-calendars/blob/main/CHANGELOG.md'
+const WHATS_NEW = [
+  'Duplicate events (same title and time) show once, marked ×2',
+  'Calendar link in the sidebar, opens as a full page',
+  'Event reminders and "good morning" briefings (Settings → Plugins → Google Calendars)',
+  'This banner: you\u2019ll see what changed after each update'
+]
 let api = null // plugin ctx, set in register()
 
 // ------------------------------------------------------------------ backend
@@ -804,6 +813,29 @@ function EventEditor({ draft, accounts, onClose, onSaved }) {
 
 // ------------------------------------------------------------------ the pane
 
+/** One-time "What's new" after an update. CalendarPane marks fresh installs (no account yet) as seen. */
+function WhatsNew() {
+  const [seen, setSeen] = useState(() => api.storage.get('seenVersion', null))
+  if (seen === VERSION) return null
+  const dismiss = () => { api.storage.set('seenVersion', VERSION); setSeen(VERSION) }
+  return jsxs('div', {
+    'data-whats-new': VERSION,
+    style: { margin: '6px 8px', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--ui-stroke-secondary)', background: 'var(--ui-bg-elevated)', fontSize: 12, display: 'flex', gap: 8, alignItems: 'flex-start' },
+    children: [
+      jsx(Codicon, { name: 'sparkle', size: 14, style: { marginTop: 1, color: 'var(--ui-accent)' } }),
+      jsxs('div', {
+        style: { flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 },
+        children: [
+          jsx('div', { style: { fontWeight: 600 }, children: `Google Calendars updated to ${VERSION}` }),
+          ...WHATS_NEW.map(line => jsx('div', { style: S.muted, children: `• ${line}` }, line)),
+          jsx('a', { href: '#', onClick: ev => { ev.preventDefault(); openUrl(CHANGELOG_URL) }, style: { color: 'var(--ui-accent)', fontSize: 11 }, children: 'Full changelog' })
+        ]
+      }),
+      jsx(IconButton, { icon: 'close', label: 'Dismiss', onClick: dismiss })
+    ]
+  })
+}
+
 function CalendarPane() {
   const [status, setStatus] = useState(null)
   const [calendars, setCalendars] = useState([])
@@ -856,6 +888,12 @@ function CalendarPane() {
   }, [loadStatus])
 
   const ready = status?.configured && status.accounts?.length > 0
+  useEffect(() => {
+    // First run (nothing connected yet): there's nothing "new" to announce later.
+    if (status && !status.error && !status.accounts?.length && api.storage.get('seenVersion', null) === null) {
+      api.storage.set('seenVersion', VERSION)
+    }
+  }, [status])
   useEffect(() => {
     if (ready) loadCalendars()
   }, [ready, loadCalendars])
@@ -928,6 +966,7 @@ function CalendarPane() {
         style: { display: 'flex', justifyContent: 'center', padding: '5px 8px' },
         children: jsx(Seg, { value: view, onChange: changeView, options: [['day', 'Day'], ['week', 'Week'], ['agenda', 'Agenda']] })
       }),
+      jsx(WhatsNew, {}),
       showFilter && jsx(CalendarFilter, { accounts: calendars, onToggle: toggleCalendar, merge, onMerge: changeMerge }),
       errors.length > 0 && jsx('div', {
         style: { padding: '4px 10px', fontSize: 11, color: 'var(--ui-red)', borderBottom: S.border },

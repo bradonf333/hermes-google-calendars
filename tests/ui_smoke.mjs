@@ -203,6 +203,16 @@ const hol = [...document.querySelectorAll('label')].find(l => l.textContent.incl
 await click(hol.querySelector('input'))
 check(calls.some(c => c[0] === 'PATCH' && c[2]?.hidden_calendars?.includes('holidays')), 'unticking a calendar hides it (saved on the account)')
 
+// What's new: silent on a fresh install, shown once after an upgrade
+check(storage.get('seenVersion') === '0.3.0' && !document.querySelector('[data-whats-new]'), 'fresh install: no "What\'s new" banner')
+storage.set('seenVersion', '0.2.2')
+await act(async () => root.unmount())
+const root2 = createRoot(document.getElementById('root'))
+await act(async () => root2.render(pane.render()))
+await flush()
+check(document.querySelector('[data-whats-new]') && text().includes('updated to 0.3.0'), 'after an upgrade: "What\'s new" banner shows')
+await click(byTitle('Dismiss'))
+check(!document.querySelector('[data-whats-new]') && storage.get('seenVersion') === '0.3.0', 'dismissed banner stays dismissed')
 check(errors.filter(e => !/act\(/.test(e)).length === 0, `no React errors (${errors.slice(0, 2).join(' | ')})`)
 console.error = origError
 await act(async () => root.unmount())

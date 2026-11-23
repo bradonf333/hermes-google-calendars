@@ -68,6 +68,22 @@ Sign-in still works in this setup: you open Google sign-in on the Desktop
 machine and paste the final address back, so nothing has to reach the
 gateway machine's `127.0.0.1`.
 
+### Updating
+
+Hermes tracks a plugin installed from Git and checks it for updates once a day
+(`plugins.auto_update_check_hours`). When there's a new version, **Capabilities
+→ Plugins** offers **Update** (or **Update all**), and the panel updates with it.
+After an update the panel shows a one-time **What's new** note; the full list
+is in [CHANGELOG.md](CHANGELOG.md) and on the
+[Releases](https://github.com/bradonf333/hermes-google-calendars/releases) page.
+
+- From a terminal: `hermes plugins check-updates`, then
+  `hermes plugins update google-calendars`.
+- **Auto-update** (the switch in the Plugins tab, or `hermes plugins
+  auto-update on`) applies updates by itself, except ones that add new tools,
+  hooks or permissions: Hermes waits for you to click **Update** for those.
+- Your accounts and settings carry over; new settings start with safe defaults.
+
 ## Google setup (one time, about 5 minutes)
 
 Do this with any Google account; a personal Gmail is a good choice because it

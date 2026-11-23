@@ -639,3 +639,13 @@ def test_reminder_routes(core, google, settings, monkeypatch):
     assert c.get("/reminders/due").json()["reminders"] == []
     settings["reminders_desktop"] = False
     assert c.get("/reminders/due").json() == {"reminders": []}
+
+
+def test_versions_agree():
+    """plugin.yaml, the panel's VERSION and the newest CHANGELOG entry move together."""
+    import re
+    import yaml
+    manifest = yaml.safe_load((ROOT / "plugin.yaml").read_text())["version"]
+    js = re.search(r"const VERSION = '([^']+)'", (ROOT / "desktop" / "plugin.js").read_text()).group(1)
+    log = re.search(r"^## (\S+)", (ROOT / "CHANGELOG.md").read_text(), re.M).group(1)
+    assert manifest == js == log
